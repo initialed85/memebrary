@@ -166,8 +166,18 @@
     event.dataTransfer.setData('text/plain', meme.id);
   }
 
-  function endMemeDrag() {
-    if (dragStartMemes && !dragDropHandled) memes = dragStartMemes;
+  function endMemeDrag(event) {
+    const sourceID = draggedMemeId;
+    const targetID = reorderTargetId;
+    const after = reorderTargetAfter;
+    const original = dragStartMemes;
+    const accepted = event?.dataTransfer?.dropEffect === 'move';
+    if (original && sourceID && targetID && sourceID !== targetID && !dragDropHandled && accepted) {
+      dragDropHandled = true;
+      void commitOrder(sourceID, targetID, after, original);
+    } else if (original && !dragDropHandled) {
+      memes = original;
+    }
     draggedMemeId = '';
     dragStartMemes = null;
     dragDropHandled = false;
@@ -286,19 +296,12 @@
     }
   }
 
-  async function reorderMeme(event, target, after = reorderTargetAfter) {
-    event.preventDefault();
-    const sourceID = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
-    reorderTargetId = '';
-    reorderTargetAfter = false;
-    if (!sourceID || sourceID === target.id) return;
-    const oldMemes = dragStartMemes || memes;
-    dragDropHandled = true;
+  async function commitOrder(sourceID, targetID, after, oldMemes) {
     try {
       const response = await fetch(`/api/memes/${sourceID}/order`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(after ? { after_id: target.id } : { before_id: target.id })
+        body: JSON.stringify(after ? { after_id: targetID } : { before_id: targetID })
       });
       if (!response.ok) {
         let body = null;
@@ -309,6 +312,17 @@
       memes = oldMemes;
       error = err.message;
     }
+  }
+
+  async function reorderMeme(event, target, after = reorderTargetAfter) {
+    event.preventDefault();
+    const sourceID = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
+    reorderTargetId = '';
+    reorderTargetAfter = false;
+    if (!sourceID || sourceID === target.id) return;
+    const oldMemes = dragStartMemes || memes;
+    dragDropHandled = true;
+    await commitOrder(sourceID, target.id, after, oldMemes);
   }
 
   async function onCardDrop(event, target) {
