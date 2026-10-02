@@ -54,6 +54,21 @@
   text-align: center;
 }
 
+.viewer-pending,
+.viewer-failed {
+  color: #999;
+  font-style: italic;
+}
+
+.viewer-failed button {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted #999;
+  background: transparent;
+  color: #666;
+  font: inherit;
+}
+
 .viewer-close {
   position: absolute;
   top: 6px;

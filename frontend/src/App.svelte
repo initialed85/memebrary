@@ -26,7 +26,6 @@
   let uploadFile;
   let uploadPreview = '';
   let tagsInput = '';
-  let description = '';
   let dragActive = false;
   let deleteActive = false;
   let draggedMemeId = '';
@@ -590,7 +589,6 @@
     uploadFile = null;
     uploadPreview = '';
     tagsInput = '';
-    description = '';
     uploadMessage = '';
   }
 
@@ -601,7 +599,6 @@
     const form = new FormData();
     form.set('file', uploadFile);
     form.set('tags', tagsInput);
-    form.set('description', description.trim());
     try {
       const meme = await api('/api/memes', { method: 'POST', body: form });
       if (!selectedTag || meme.tags?.includes(selectedTag)) {
@@ -623,20 +620,6 @@
     } catch (err) {
       error = err.message;
     }
-  }
-
-  function formatDate(value) {
-    const date = new Date(value);
-    const now = new Date();
-    if (date.toDateString() === now.toDateString()) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
-  }
-
-  function shortName(name) {
-    if (!name || name.length <= 32) return name;
-    return `${name.slice(0, 29)}…`;
   }
 
   onMount(() => {
@@ -731,10 +714,6 @@
             <span>hashtags <small>(optional)</small></span>
             <input bind:value={tagsInput} placeholder="#reaction #work #animals" maxlength="500" />
           </label>
-          <label>
-            <span>description <small>(optional — AI fills this in)</small></span>
-            <input bind:value={description} placeholder="What is happening in this meme?" maxlength="500" />
-          </label>
           {#if uploadMessage}<p class="form-error">{uploadMessage}</p>{/if}
           <div class="editor-actions">
             <button class="button primary" disabled={uploading} on:click={submitUpload}>{uploading ? 'Uploading…' : 'Add to library'}</button>
@@ -789,23 +768,13 @@
           <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer" on:click={(event) => openViewer(event, meme)}>
             <img loading="lazy" src={`/media/${meme.id}`} alt={meme.description || 'Meme image'} />
           </a>
-          <div class="card-details">
-            {#if meme.tags?.length}
+          {#if meme.tags?.length}
+            <div class="card-details">
               <div class="tags">
                 {#each meme.tags as tag}<button on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
               </div>
-            {/if}
-            {#if meme.description}
-              <p class="description">{meme.description}</p>
-            {:else if meme.description_status === 'pending'}
-              <p class="description pending"><span class="mini-spinner"></span> writing a description…</p>
-            {:else if meme.description_status === 'failed'}
-              <p class="description failed">Description unavailable <button on:click={() => retryDescription(meme)}>retry</button></p>
-            {:else}
-              <p class="description muted">No description</p>
-            {/if}
-            <div class="card-footer"><time datetime={meme.created_at}>{formatDate(meme.created_at)}</time><span title={meme.original_name}>{shortName(meme.original_name)}</span></div>
-          </div>
+            </div>
+          {/if}
         </article>
       {/each}
     </section>
@@ -823,7 +792,13 @@
       <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
       <figure>
         <img class="viewer-image" src={`/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
-        {#if viewerMeme.description}<figcaption>{viewerMeme.description}</figcaption>{/if}
+        {#if viewerMeme.description}
+          <figcaption>{viewerMeme.description}</figcaption>
+        {:else if viewerMeme.description_status === 'pending'}
+          <figcaption class="viewer-pending">writing a description…</figcaption>
+        {:else if viewerMeme.description_status === 'failed'}
+          <figcaption class="viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></figcaption>
+        {/if}
       </figure>
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
       <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}{#if viewerMeme.tags?.length}<span>{viewerMeme.tags.map((tag) => `#${tag}`).join(' ')}</span>{/if}</div>
