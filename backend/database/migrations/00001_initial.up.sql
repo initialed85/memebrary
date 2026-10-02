@@ -12,10 +12,10 @@ CREATE TABLE
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
         deleted_at timestamptz NULL DEFAULT NULL,
-        filename TEXT NOT NULL UNIQUE,
-        original_name TEXT NOT NULL,
-        mime_type TEXT NOT NULL,
-        size INTEGER NOT NULL,
+        filename TEXT NOT NULL UNIQUE CHECK (trim(filename) != ''),
+        original_name TEXT NOT NULL CHECK (trim(original_name) != ''),
+        mime_type TEXT NOT NULL CHECK (trim(mime_type) != ''),
+        size INTEGER NOT NULL CHECK (size > 0),
         description TEXT NOT NULL DEFAULT '',
         description_status TEXT NOT NULL DEFAULT 'none',
         description_generated INTEGER NOT NULL DEFAULT 0,
@@ -77,7 +77,7 @@ CREATE TABLE
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
         deleted_at timestamptz NULL DEFAULT NULL,
-        name TEXT NOT NULL UNIQUE
+        name TEXT NOT NULL UNIQUE CHECK (trim(name) != '')
     );
 
 ALTER TABLE public.tag OWNER TO postgres;
@@ -124,7 +124,7 @@ DO INSTEAD (
 );
 
 --
--- tag -> meme (many-to-many)
+-- meme_tag
 --
 
 CREATE TABLE
@@ -178,6 +178,9 @@ DO INSTEAD (
         AND deleted_at IS null
 );
 
+--
+-- tag -> meme (many-to-many)
+--
 
 ALTER TABLE public.meme_tag
 ADD COLUMN meme_id uuid NOT NULL REFERENCES public.meme (id);
@@ -185,5 +188,44 @@ ADD COLUMN meme_id uuid NOT NULL REFERENCES public.meme (id);
 
 ALTER TABLE public.meme_tag
 ADD COLUMN tag_id uuid NOT NULL REFERENCES public.tag (id);
+
+--
+-- meme unique on (filename)
+--
+
+CREATE UNIQUE INDEX meme_unique_filename_not_deleted ON public.meme (filename)
+WHERE
+    deleted_at IS null;
+
+CREATE UNIQUE INDEX meme_unique_filename_deleted ON public.meme (filename, deleted_at)
+WHERE
+    deleted_at IS NOT null;
+
+
+--
+-- tag unique on (name)
+--
+
+CREATE UNIQUE INDEX tag_unique_name_not_deleted ON public.tag (name)
+WHERE
+    deleted_at IS null;
+
+CREATE UNIQUE INDEX tag_unique_name_deleted ON public.tag (name, deleted_at)
+WHERE
+    deleted_at IS NOT null;
+
+
+--
+-- meme_tag unique on (meme_id, tag_id)
+--
+
+CREATE UNIQUE INDEX meme_tag_unique_meme_id_tag_id_not_deleted ON public.meme_tag (meme_id, tag_id)
+WHERE
+    deleted_at IS null;
+
+CREATE UNIQUE INDEX meme_tag_unique_meme_id_tag_id_deleted ON public.meme_tag (meme_id, tag_id, deleted_at)
+WHERE
+    deleted_at IS NOT null;
+
 
 

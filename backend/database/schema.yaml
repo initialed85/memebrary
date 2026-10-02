@@ -1,21 +1,29 @@
 objects:
   - name: meme
     properties:
-      - filename TEXT NOT NULL UNIQUE
-      - original_name TEXT NOT NULL
-      - mime_type TEXT NOT NULL
-      - size INTEGER NOT NULL
+      - filename TEXT NOT NULL UNIQUE CHECK (trim(filename) != '')
+      - original_name TEXT NOT NULL CHECK (trim(original_name) != '')
+      - mime_type TEXT NOT NULL CHECK (trim(mime_type) != '')
+      - size INTEGER NOT NULL CHECK (size > 0)
       - description TEXT NOT NULL DEFAULT ''
       - description_status TEXT NOT NULL DEFAULT 'none'
       - description_generated INTEGER NOT NULL DEFAULT 0
       - sort_order INTEGER NOT NULL DEFAULT 0
       - metadata_version INTEGER NOT NULL DEFAULT 0
+    unique_on:
+      - ["filename"]
     claims:
       - ai_worker
 
   - name: tag
     properties:
-      - name TEXT NOT NULL UNIQUE
+      - name TEXT NOT NULL UNIQUE CHECK (trim(name) != '')
+    unique_on:
+      - ["name"]
+
+  - name: meme_tag
+    unique_on:
+      - ["meme_id", "tag_id"]
 
 relationships:
   - source: tag
