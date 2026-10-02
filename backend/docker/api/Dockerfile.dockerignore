@@ -4,5 +4,11 @@
 !cmd
 !internal
 !pkg
+!database
+!database/migrations
+!database/migrations/**
+!docker
+!docker/api
+!docker/api/entrypoint.sh
 !go.mod
 !go.sum

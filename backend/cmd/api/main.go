@@ -3,89 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gomodule/redigo/redis"
 	"github.com/initialed85/djangolang/pkg/config"
-	"github.com/initialed85/djangolang/pkg/query"
-	"github.com/initialed85/djangolang/pkg/server"
+	internalconfig "github.com/initialed85/membrary/backend/internal/config"
+	"github.com/initialed85/membrary/backend/internal/describe"
+	"github.com/initialed85/membrary/backend/internal/httpapi"
+	"github.com/initialed85/membrary/backend/internal/store"
 	"github.com/initialed85/membrary/backend/pkg/api"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var log = api.ThisLogger()
 
-func addCustomHandlers(r chi.Router, db *pgxpool.Pool, redisPool *redis.Pool) error {
-	postHandler, err := server.GetHTTPHandler(
-		http.MethodPost,
-		"/memes/{primaryKey}/do-some-custom-action",
-		http.StatusCreated,
-		func(
-			ctx context.Context,
-			pathParams api.MemeOnePathParams,
-			queryParams server.EmptyQueryParams,
-			req server.EmptyRequest,
-			rawReq any,
-		) (server.Response[api.Meme], error) {
-			tx, err := db.Begin(ctx)
-			if err != nil {
-				return server.Response[api.Meme]{}, fmt.Errorf("failed to begin DB transaction; %v", err)
-			}
-
-			defer func() {
-				_ = tx.Rollback(ctx)
-			}()
-
-			meme, _, _, _, _, err := api.SelectMeme(
-				query.WithLoad(ctx, "referenced_by_meme_tag"),
-				tx,
-				fmt.Sprintf("%s = $$??", api.MemeTablePrimaryKeyColumn),
-				pathParams.PrimaryKey,
-			)
-			if err != nil {
-				return server.Response[api.Meme]{}, fmt.Errorf(
-					"failed to get job for job name %#+v; %v",
-					pathParams.PrimaryKey, err,
-				)
-			}
-
-			for i, memeTag := range meme.ReferencedByMemeTagMemeIDObjects {
-				memeTag.Reload(
-					query.WithLoad(ctx, "tag"),
-					tx,
-				)
-
-				meme.ReferencedByMemeTagMemeIDObjects[i] = memeTag
-			}
-
-			err = tx.Commit(ctx)
-			if err != nil {
-				return server.Response[api.Meme]{}, fmt.Errorf(
-					"failed to commit DB transaction; %v", err,
-				)
-			}
-
-			return server.Response[api.Meme]{
-				Status:     http.StatusOK,
-				Success:    true,
-				Error:      nil,
-				Objects:    []*api.Meme{meme},
-				Count:      1,
-				TotalCount: 1,
-				Limit:      1,
-				Offset:     0,
-			}, nil
-		},
-	)
-	if err != nil {
-		return err
+func addCustomHandlers(r chi.Router, db *pgxpool.Pool, _ *redis.Pool) error {
+	cfg := internalconfig.Load()
+	if err := os.MkdirAll(cfg.MediaDir, 0o755); err != nil {
+		return fmt.Errorf("create media directory: %w", err)
 	}
-
-	r.Post(postHandler.FullPath, postHandler.ServeHTTP)
-
+	dataStore := store.New(db)
+	logger := slog.Default()
+	generator := describe.New(cfg.AIBaseURL, cfg.AIModel, cfg.AIAPIKey, dataStore, cfg.ReprocessExisting, cfg.AIWorkers, logger)
+	generator.Start(context.Background())
+	compatibilityAPI := httpapi.New(dataStore, generator, cfg.MediaDir, cfg.MaxUploadSize, cfg.CORSOrigin, logger)
+	compatibilityAPI.Routes(r)
 	return nil
 }
 
@@ -95,19 +40,16 @@ func main() {
 	}
 
 	command := strings.TrimSpace(strings.ToLower(os.Args[1]))
-
 	switch command {
-
 	case "dump-config":
 		config.DumpConfig()
-
 	case "dump-openapi-json":
 		api.RunDumpOpenAPIJSON()
-
 	case "dump-openapi-yaml":
 		api.RunDumpOpenAPIYAML()
-
 	case "serve":
 		api.RunServeWithEnvironment(nil, nil, addCustomHandlers)
+	default:
+		log.Fatalf("unknown command %q", command)
 	}
 }

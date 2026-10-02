@@ -1,0 +1,267 @@
+.viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  background: rgba(20, 20, 20, 0.82);
+}
+
+.viewer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(1200px, 100%);
+  max-height: calc(100vh - 60px);
+  padding: 18px 14px 10px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 12px 55px rgba(0, 0, 0, 0.35);
+}
+
+.viewer-image-scroll {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+.viewer-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.viewer-slide-next {
+  animation: viewer-slide-next 180ms ease-out;
+}
+
+.viewer-slide-prev {
+  animation: viewer-slide-prev 180ms ease-out;
+}
+
+@keyframes viewer-slide-next {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes viewer-slide-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.viewer-description {
+  width: min(700px, 100%);
+  flex: 0 0 auto;
+  margin-top: 10px;
+  color: #555;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.viewer-pending,
+.viewer-failed {
+  color: #999;
+  font-style: italic;
+}
+
+.viewer-failed button {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted #999;
+  background: transparent;
+  color: #666;
+  font: inherit;
+}
+
+.viewer-close {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  z-index: 1;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.viewer-close:hover {
+  color: #222;
+}
+
+.viewer-arrow {
+  position: absolute;
+  top: 18px;
+  bottom: 38px;
+  z-index: 2;
+  display: grid;
+  width: 58px;
+  height: auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.3);
+  -webkit-tap-highlight-color: transparent;
+  font-family: Georgia, serif;
+  font-size: 38px;
+  line-height: 1;
+  opacity: 0.6;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+@media (hover: hover) {
+  .viewer-arrow:hover:not(:disabled) {
+    background: transparent;
+    color: rgba(0, 0, 0, 0.7);
+    opacity: 1;
+  }
+}
+
+.viewer-arrow:active:not(:disabled) {
+  background: transparent;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.viewer-arrow:disabled {
+  visibility: hidden;
+}
+
+.viewer-prev {
+  left: 8px;
+}
+
+.viewer-next {
+  right: 8px;
+}
+
+.viewer-meta {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  min-height: 15px;
+  margin-top: 7px;
+  color: #aaa;
+  font-size: 10px;
+}
+
+.viewer-meta span {
+  color: #777;
+}
+
+.viewer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 6px;
+}
+
+.viewer-tags > button,
+.viewer-tags form button {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background: #fafafa;
+  color: #666;
+  font-size: 10px;
+}
+
+.viewer-tags > button:hover,
+.viewer-tags form button:hover:not(:disabled) {
+  border-color: #999;
+  color: #222;
+}
+
+.viewer-regenerate {
+  width: 22px;
+  height: 22px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  color: #888 !important;
+  font-size: 14px !important;
+}
+
+.viewer-regenerate:hover:not(:disabled) {
+  color: #222 !important;
+  transform: rotate(-45deg);
+}
+
+.viewer-tags > button.tag-delete-ready {
+  border-color: #b44;
+  background: #fff0f0;
+  color: #a22;
+}
+
+.viewer-tags form {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.viewer-tags form input {
+  width: 85px;
+  padding: 3px 5px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  outline: none;
+  font-size: 10px;
+}
+
+@media (max-width: 650px) {
+  .viewer-backdrop {
+    padding: 10px;
+  }
+
+  .viewer {
+    max-height: calc(100vh - 20px);
+    padding: 22px 5px 8px;
+  }
+
+  .viewer-image-scroll {
+    max-height: calc(100vh - 190px);
+  }
+
+  .viewer-arrow {
+    top: 22px;
+    bottom: 34px;
+    width: 48px;
+  }
+
+  .viewer-tags form input {
+    width: 110px;
+    font-size: 10px;
+  }
+}

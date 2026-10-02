@@ -4,3 +4,5 @@ cmd/api/api
 pkg/api/bin/api
 pkg/job_executor/tmp/
 tmp
+frontend/node_modules/
+frontend/dist/
