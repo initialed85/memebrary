@@ -34,6 +34,13 @@
   let dragCancelled = false;
   let dragCommitTargetId = '';
   let dragCommitAfter = false;
+  let longPressTimer;
+  let touchPointerId = null;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchDragActive = false;
+  let touchOverDelete = false;
+  let suppressClick = false;
   let reorderTargetId = '';
   let reorderTargetAfter = false;
   let deletingId = '';
@@ -163,7 +170,16 @@
     event.preventDefault();
   }
 
+  function onMemeContextMenu(event) {
+    if (event.pointerType === 'touch' || event.sourceCapabilities?.firesTouchEvents) event.preventDefault();
+  }
+
   function openViewer(event, meme) {
+    if (suppressClick) {
+      suppressClick = false;
+      event.preventDefault();
+      return;
+    }
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     viewerId = meme.id;
@@ -261,10 +277,8 @@
     return Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
   }
 
-  function previewReorder(event, card, meme, after = dropIsAfter(event, card)) {
-    if (!card || !meme || draggedMemeId === meme.id || !isMemeDrag(event)) return false;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+  function applyReorderPreview(meme, after) {
+    if (!meme || draggedMemeId === meme.id) return false;
     const sourceIndex = memes.findIndex((item) => item.id === draggedMemeId);
     const targetIndex = memes.findIndex((item) => item.id === meme.id);
     if (sourceIndex >= 0 && targetIndex >= 0) {
@@ -281,8 +295,117 @@
     return true;
   }
 
+  function previewReorder(event, card, meme, after = dropIsAfter(event, card)) {
+    if (!card || !meme || draggedMemeId === meme.id || !isMemeDrag(event)) return false;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    return applyReorderPreview(meme, after);
+  }
+
   function onCardDragOver(event, meme) {
     previewReorder(event, event.currentTarget, meme);
+  }
+
+  function clearLongPress() {
+    if (longPressTimer) window.clearTimeout(longPressTimer);
+    longPressTimer = undefined;
+  }
+
+  function onMemePointerDown(event, meme) {
+    if (event.pointerType === 'mouse' || event.button !== 0) return;
+    touchPointerId = event.pointerId;
+    touchStartX = event.clientX;
+    touchStartY = event.clientY;
+    touchDragActive = false;
+    touchOverDelete = false;
+    clearLongPress();
+    longPressTimer = window.setTimeout(() => {
+      touchDragActive = true;
+      draggedMemeId = meme.id;
+      dragStartMemes = [...memes];
+      dragDropHandled = false;
+      dragCancelled = false;
+      dragCommitTargetId = '';
+      dragCommitAfter = false;
+      suppressClick = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      updateMemePointer(event);
+    }, 450);
+  }
+
+  function updateMemePointer(event) {
+    if (!touchDragActive || event.pointerId !== touchPointerId) return;
+    event.preventDefault();
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const deleteZone = element?.closest?.('.delete-zone');
+    if (deleteZone) {
+      if (dragStartMemes) memes = dragStartMemes;
+      dragCommitTargetId = '';
+      dragCommitAfter = false;
+      reorderTargetId = '';
+      reorderTargetAfter = false;
+      touchOverDelete = true;
+      deleteActive = true;
+      return;
+    }
+    touchOverDelete = false;
+    deleteActive = false;
+    const target = findDropTarget({ clientX: event.clientX, clientY: event.clientY });
+    const meme = memes.find((item) => item.id === target?.card?.dataset.memeId);
+    if (target && meme) applyReorderPreview(meme, target.after);
+  }
+
+  function onMemePointerMove(event) {
+    if (event.pointerId !== touchPointerId) return;
+    if (!touchDragActive) {
+      if (Math.hypot(event.clientX - touchStartX, event.clientY - touchStartY) > 10) clearLongPress();
+      return;
+    }
+    updateMemePointer(event);
+  }
+
+  async function finishMemePointer(event, cancelled = false) {
+    if (event.pointerId !== touchPointerId) return;
+    clearLongPress();
+    if (!touchDragActive) {
+      touchPointerId = null;
+      return;
+    }
+    event.preventDefault();
+    if (cancelled) dragCancelled = true;
+    if (touchOverDelete) {
+      const id = draggedMemeId;
+      const original = dragStartMemes || memes;
+      dragDropHandled = true;
+      memes = original;
+      await deleteMemeByID(id);
+    } else if (dragCommitTargetId && dragCommitTargetId !== draggedMemeId && !dragCancelled) {
+      const original = dragStartMemes || memes;
+      dragDropHandled = true;
+      await commitOrder(draggedMemeId, dragCommitTargetId, dragCommitAfter, original);
+    } else if (dragStartMemes) {
+      memes = dragStartMemes;
+    }
+    draggedMemeId = '';
+    dragStartMemes = null;
+    dragDropHandled = false;
+    touchPointerId = null;
+    touchDragActive = false;
+    touchOverDelete = false;
+    deleteActive = false;
+    reorderTargetId = '';
+    reorderTargetAfter = false;
+    dragCommitTargetId = '';
+    dragCommitAfter = false;
+    window.setTimeout(() => (suppressClick = false), 0);
+  }
+
+  function onMemePointerUp(event) {
+    void finishMemePointer(event);
+  }
+
+  function onMemePointerCancel(event) {
+    void finishMemePointer(event, true);
   }
 
   function onCardDragLeave(event) {
@@ -419,18 +542,13 @@
     deleteActive = false;
   }
 
-  async function onDeleteDrop(event) {
-    event.preventDefault();
-    deleteActive = false;
-    const id = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
+  async function deleteMemeByID(id) {
     const meme = memes.find((item) => item.id === id);
-    if (!meme || deletingId) return;
-    if (!window.confirm('Delete this meme permanently?')) return;
+    if (!meme || deletingId || !window.confirm('Delete this meme permanently?')) return;
     const oldMemes = dragStartMemes || memes;
-    dragDropHandled = true;
-    memes = oldMemes;
     deletingId = meme.id;
     deleteError = '';
+    memes = oldMemes;
     try {
       const response = await fetch(`/api/memes/${meme.id}`, { method: 'DELETE' });
       if (!response.ok) {
@@ -440,12 +558,24 @@
       }
       memes = memes.filter((item) => item.id !== meme.id);
       total = Math.max(0, total - 1);
+      if (viewerId === meme.id) closeViewer();
     } catch (err) {
+      memes = oldMemes;
       deleteError = err.message;
     } finally {
       deletingId = '';
       draggedMemeId = '';
     }
+  }
+
+  async function onDeleteDrop(event) {
+    event.preventDefault();
+    deleteActive = false;
+    const id = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
+    if (!memes.some((item) => item.id === id)) return;
+    dragDropHandled = true;
+    if (dragStartMemes) memes = dragStartMemes;
+    await deleteMemeByID(id);
   }
 
   function resetUpload() {
@@ -648,6 +778,11 @@
           draggable="true"
           on:dragstart={(event) => startMemeDrag(event, meme)}
           on:dragend={endMemeDrag}
+          on:pointerdown={(event) => onMemePointerDown(event, meme)}
+          on:pointermove={onMemePointerMove}
+          on:pointerup={onMemePointerUp}
+          on:pointercancel={onMemePointerCancel}
+          on:contextmenu={onMemeContextMenu}
           on:dragover|stopPropagation={(event) => onCardDragOver(event, meme)}
           on:dragleave={onCardDragLeave}
           on:drop|stopPropagation={(event) => onCardDrop(event, meme)}

@@ -45,7 +45,7 @@ button:disabled {
   align-items: center;
   gap: 13px;
   width: min(1460px, calc(100% - 40px));
-  min-height: 56px;
+  min-height: 48px;
   margin: 0 auto;
 }
 
@@ -139,9 +139,9 @@ button:disabled {
 
 .control-dock {
   position: sticky;
-  top: 56px;
+  top: 48px;
   z-index: 15;
-  padding: 22px 0 10px;
+  padding: 12px 0 6px;
   background: #fff;
   box-shadow: 0 7px 10px -12px rgba(0, 0, 0, 0.35);
 }
@@ -156,8 +156,8 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 82px;
-  padding: 16px 20px;
+  min-height: 62px;
+  padding: 11px 16px;
   border: 1px dashed #c9c9c9;
   border-radius: 5px;
   background: #fcfcfc;
@@ -176,8 +176,8 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  min-height: 82px;
-  padding: 12px 15px;
+  min-height: 62px;
+  padding: 9px 13px;
   border: 1px dashed #e2caca;
   border-radius: 5px;
   background: #fffafa;
@@ -246,8 +246,8 @@ button:disabled {
 
 .upload-icon {
   display: grid;
-  width: 31px;
-  height: 31px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border: 1px solid #cfcfcf;
   border-radius: 50%;
@@ -428,6 +428,8 @@ small {
 }
 
 .meme-card {
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
   overflow: hidden;
   border: 1px solid #dedede;
   border-radius: 4px;
@@ -658,8 +660,8 @@ footer {
 
   .topbar-inner {
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 0;
+    gap: 6px;
+    padding: 5px 0;
   }
 
   .anonymous {
@@ -682,29 +684,66 @@ footer {
   }
 
   .control-dock {
-    top: 95px;
-    padding-top: 14px;
+    top: 72px;
+    padding-top: 8px;
+    padding-bottom: 4px;
   }
 
   .upload-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
+    grid-template-columns: 3fr 1fr;
+    gap: 5px;
   }
 
   .dropzone {
-    display: block;
-    padding: 14px;
+    min-height: 47px;
+    padding: 8px 9px;
+  }
+
+  .drop-copy {
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .drop-copy strong {
+    margin-bottom: 2px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .drop-copy span:not(.upload-icon) {
+    font-size: 9px;
+    white-space: nowrap;
   }
 
   .drop-hint {
-    display: block;
-    margin: 10px 0 0 43px;
+    display: none;
   }
 
   .delete-zone {
-    min-height: 58px;
-    justify-content: flex-start;
-    padding-left: 43px;
+    min-height: 47px;
+    gap: 4px;
+    justify-content: center;
+    padding: 5px;
+  }
+
+  .delete-zone strong {
+    margin: 0;
+    font-size: 0;
+  }
+
+  .delete-zone strong::after {
+    content: 'delete';
+    font-size: 9px;
+  }
+
+  .delete-zone span:not(.trash-icon) {
+    display: none;
+  }
+
+  .trash-icon {
+    width: 21px;
+    height: 21px;
+    font-size: 15px;
   }
 
   .upload-editor {
