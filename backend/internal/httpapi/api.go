@@ -108,8 +108,6 @@ func (a *API) Handler() http.Handler {
 		}()
 
 		switch {
-		case r.URL.Path == "/healthz":
-			a.health(w, r)
 		case r.URL.Path == "/api/memes" || r.URL.Path == "/api/memes/":
 			a.memes(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/memes/"):
@@ -120,10 +118,6 @@ func (a *API) Handler() http.Handler {
 			notFound(w)
 		}
 	})
-}
-
-func (a *API) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *API) memes(w http.ResponseWriter, r *http.Request) {
