@@ -45,11 +45,13 @@ Images are validated as JPEG, PNG, GIF, or WebP and stored under a UUID filename
 
 ## Container images
 
-Build the independently publishable artifacts from their directories:
+Build and publish the independently deployable images from the repository root (after `docker login`):
 
 ```sh
-docker build -t initialed85/memebrary-backend:latest ./backend
-docker build -t initialed85/memebrary-frontend:latest ./frontend
+docker build --platform linux/amd64 -t initialed85/memebrary-backend:latest ./backend
+docker build --platform linux/amd64 -t initialed85/memebrary-frontend:latest ./frontend
+docker push initialed85/memebrary-backend:latest
+docker push initialed85/memebrary-frontend:latest
 ```
 
-The frontend nginx config proxies `/api` and `/media` to the Kubernetes `memebrary-backend` service. Change that service name in `frontend/nginx.conf` if the deployment naming changes.
+Then apply the manifests in `~/Projects/Home/home-ops/applications/memebrary` as described in that directory's README. The frontend nginx config proxies `/api` and `/media` to the Kubernetes `memebrary-backend` service. Change that service name in `frontend/nginx.conf` if the deployment naming changes.
