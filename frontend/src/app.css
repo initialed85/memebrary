@@ -749,7 +749,12 @@ footer {
   }
 
   .card-details {
-    padding: 7px;
+    min-height: 0;
+    padding: 6px 7px 4px;
+  }
+
+  .card-details .tags {
+    margin-bottom: 0;
   }
 
   .card-footer span {
