@@ -15,6 +15,8 @@
   let sentinel;
   let fileInput;
   let observer;
+  let pollTimer;
+  let pollInFlight = false;
 
   let uploadFile;
   let uploadPreview = '';
@@ -61,6 +63,38 @@
       loading = false;
       loadingMore = false;
     }
+  }
+
+  async function refreshLatest() {
+    if (pollInFlight || loading || loadingMore || document.visibilityState === 'hidden') return;
+    pollInFlight = true;
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (selectedTag) params.set('tag', selectedTag);
+    try {
+      const result = await api(`/api/memes?${params}`);
+      const remote = result.memes || [];
+      const remoteIDs = new Set(remote.map((item) => item.id));
+      // Keep already-loaded older pages while replacing the latest window. This
+      // lets another browser's upload/AI result appear without jumping scroll.
+      memes = [...remote, ...memes.filter((item) => !remoteIDs.has(item.id))];
+      total = result.total || 0;
+      if (!nextCursor || memes.length <= remote.length) nextCursor = result.next_cursor || '';
+    } catch (err) {
+      // A transient poll failure should not disrupt a timeline that is already visible.
+      if (memes.length === 0) error = err.message;
+    } finally {
+      pollInFlight = false;
+    }
+  }
+
+  function onPaste(event) {
+    const imageItem = [...(event.clipboardData?.items || [])].find(
+      (item) => item.kind === 'file' && item.type.startsWith('image/')
+    );
+    const file = imageItem?.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    setUploadFile(file);
   }
 
   function chooseTag(tag) {
@@ -133,10 +167,11 @@
     form.set('description', description.trim());
     try {
       const meme = await api('/api/memes', { method: 'POST', body: form });
-      memes = [meme, ...memes.filter((item) => item.id !== meme.id)];
-      total += 1;
+      if (!selectedTag || meme.tags?.includes(selectedTag)) {
+        memes = [meme, ...memes.filter((item) => item.id !== meme.id)];
+        total += 1;
+      }
       resetUpload();
-      if (meme.description_status === 'pending') pollDescription(meme.id);
     } catch (err) {
       uploadMessage = err.message;
     } finally {
@@ -144,29 +179,10 @@
     }
   }
 
-  async function pollDescription(id) {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      try {
-        const pending = memes.some((item) => item.id === id && item.description_status === 'pending');
-        if (!pending) return;
-        const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-        if (selectedTag) params.set('tag', selectedTag);
-        const refreshed = await api(`/api/memes?${params}`);
-        const updated = refreshed.memes.find((item) => item.id === id);
-        if (updated) memes = memes.map((item) => (item.id === id ? updated : item));
-        if (updated && updated.description_status !== 'pending') return;
-      } catch {
-        return;
-      }
-    }
-  }
-
   async function retryDescription(meme) {
     try {
       const pending = await api(`/api/memes/${meme.id}/describe`, { method: 'POST' });
       memes = memes.map((item) => (item.id === meme.id ? pending : item));
-      pollDescription(meme.id);
     } catch (err) {
       error = err.message;
     }
@@ -190,6 +206,8 @@
     load(true);
     window.addEventListener('dragover', preventWindowDrop);
     window.addEventListener('drop', preventWindowDrop);
+    window.addEventListener('paste', onPaste);
+    pollTimer = window.setInterval(refreshLatest, 8000);
     observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && nextCursor && !loadingMore) load(false);
     }, { rootMargin: '500px' });
@@ -198,6 +216,8 @@
       observer?.disconnect();
       window.removeEventListener('dragover', preventWindowDrop);
       window.removeEventListener('drop', preventWindowDrop);
+      window.removeEventListener('paste', onPaste);
+      window.clearInterval(pollTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
     };
   });
@@ -212,7 +232,7 @@
     <a class="wordmark" href="/" aria-label="meme/brary home">
       <span class="mark">m</span><span>meme<span class="slash">/</span>brary</span>
     </a>
-    <span class="anonymous"><span class="dot"></span> anonymous archive</span>
+    <span class="anonymous" title="The timeline refreshes every 8 seconds"><span class="dot"></span> anonymous · live</span>
     <form class="filter" on:submit={applyTag}>
       <label for="tag-filter">filter</label>
       <input id="tag-filter" bind:value={tagQuery} placeholder="#cats" autocomplete="off" />
@@ -240,7 +260,7 @@
         <span>or <button type="button" class="link-button" on:click={() => fileInput?.click()}>choose an image</button></span>
       </div>
     </div>
-    <span class="drop-hint">PNG, JPG, GIF or WebP · up to 20 MB</span>
+    <span class="drop-hint">PNG, JPG, GIF or WebP · up to 20 MB · Ctrl+V works too</span>
     <input bind:this={fileInput} class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" on:change={onFileInput} />
   </section>
 
