@@ -849,7 +849,7 @@
         on:dragleave={onDeleteDragLeave}
         on:drop={onDeleteDrop}
       >
-        <span class="trash-icon" aria-hidden="true">⌫</span>
+        <span class="trash-icon" aria-hidden="true">🗑️</span>
         <div>
           <strong>{deletingId ? 'Deleting…' : 'Drag here to delete'}</strong>
           <span>{deleteError || 'release to remove forever'}</span>
