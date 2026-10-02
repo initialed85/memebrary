@@ -20,6 +20,8 @@
   let filterTimer;
   let pollInFlight = false;
   let viewerId = '';
+  let viewerTouchStartX = 0;
+  let viewerTouchStartY = 0;
   $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
   $: viewerMeme = viewerIndex >= 0 ? memes[viewerIndex] : null;
 
@@ -219,6 +221,22 @@
 
   function viewerPrevious() {
     if (viewerIndex > 0) showViewer(memes[viewerIndex - 1].id, true);
+  }
+
+  function onViewerTouchStart(event) {
+    if (event.touches.length !== 1) return;
+    viewerTouchStartX = event.touches[0].clientX;
+    viewerTouchStartY = event.touches[0].clientY;
+  }
+
+  function onViewerTouchEnd(event) {
+    if (!viewerMeme || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - viewerTouchStartX;
+    const dy = touch.clientY - viewerTouchStartY;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    if (dx < 0) void viewerNext();
+    else viewerPrevious();
   }
 
   async function viewerNext() {
@@ -828,7 +846,7 @@
 
 {#if viewerMeme}
   <div class="viewer-backdrop" role="presentation" on:click={closeViewer}>
-    <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation>
+    <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation on:touchstart={onViewerTouchStart} on:touchend={onViewerTouchEnd}>
       <button class="viewer-close" aria-label="Close image viewer" on:click={closeViewer}>×</button>
       <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
       <figure>

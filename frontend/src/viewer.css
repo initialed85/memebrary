@@ -97,8 +97,9 @@
   padding: 0;
   border: 0;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.12);
+  background: transparent;
   color: rgba(0, 0, 0, 0.3);
+  -webkit-tap-highlight-color: transparent;
   font-family: Georgia, serif;
   font-size: 38px;
   line-height: 1;
@@ -106,10 +107,17 @@
   transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
-.viewer-arrow:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.62);
+@media (hover: hover) {
+  .viewer-arrow:hover:not(:disabled) {
+    background: transparent;
+    color: rgba(0, 0, 0, 0.7);
+    opacity: 1;
+  }
+}
+
+.viewer-arrow:active:not(:disabled) {
+  background: transparent;
   color: rgba(0, 0, 0, 0.7);
-  opacity: 1;
 }
 
 .viewer-arrow:disabled {
