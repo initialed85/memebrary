@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "checkJs": false,
+    "allowJs": true,
+    "moduleResolution": "bundler",
+    "module": "es2020",
+    "target": "es2020"
+  },
+  "include": ["src/**/*.js", "src/**/*.svelte"]
+}
