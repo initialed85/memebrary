@@ -38,7 +38,8 @@ Then open <http://localhost:8081>.
 - `GET /healthz`
 - `GET /api/memes?limit=36&cursor=...&tag=cats`
 - `POST /api/memes` multipart form: `file`, optional `tags`, optional `description`
-- `POST /api/memes/:id/describe` queues (or retries) an AI description
+- `POST /api/memes/:id/describe` queues (or retries) AI metadata generation
+- `DELETE /api/memes/:id` removes a meme and its stored image
 - `GET /media/:id`
 
 Images are validated as JPEG, PNG, GIF, or WebP and stored under a UUID filename. SQLite and media are kept together under the configured data directory.

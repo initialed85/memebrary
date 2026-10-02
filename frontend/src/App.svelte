@@ -23,8 +23,12 @@
   let tagsInput = '';
   let description = '';
   let dragActive = false;
+  let deleteActive = false;
+  let draggedMemeId = '';
+  let deletingId = '';
   let uploading = false;
   let uploadMessage = '';
+  let deleteError = '';
 
   async function api(path, options = {}) {
     const response = await fetch(path, options);
@@ -148,6 +152,55 @@
     event.preventDefault();
   }
 
+  function startMemeDrag(event, meme) {
+    draggedMemeId = meme.id;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-memebrary-id', meme.id);
+    event.dataTransfer.setData('text/plain', meme.id);
+  }
+
+  function endMemeDrag() {
+    draggedMemeId = '';
+    deleteActive = false;
+  }
+
+  function onDeleteDragOver(event) {
+    if (!Array.from(event.dataTransfer.types).includes('application/x-memebrary-id')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    deleteActive = true;
+  }
+
+  function onDeleteDragLeave() {
+    deleteActive = false;
+  }
+
+  async function onDeleteDrop(event) {
+    event.preventDefault();
+    deleteActive = false;
+    const id = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
+    const meme = memes.find((item) => item.id === id);
+    if (!meme || deletingId) return;
+    if (!window.confirm('Delete this meme permanently?')) return;
+    deletingId = meme.id;
+    deleteError = '';
+    try {
+      const response = await fetch(`/api/memes/${meme.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        let body = null;
+        try { body = await response.json(); } catch {}
+        throw new Error(body?.error || `Delete failed (${response.status})`);
+      }
+      memes = memes.filter((item) => item.id !== meme.id);
+      total = Math.max(0, total - 1);
+    } catch (err) {
+      deleteError = err.message;
+    } finally {
+      deletingId = '';
+      draggedMemeId = '';
+    }
+  }
+
   function resetUpload() {
     if (uploadPreview) URL.revokeObjectURL(uploadPreview);
     uploadFile = null;
@@ -244,46 +297,65 @@
 </header>
 
 <main class="page">
-  <section
-    class:drag-active={dragActive}
-    class="dropzone"
-    aria-label="Image upload drop zone"
-    on:dragenter|preventDefault={() => (dragActive = true)}
-    on:dragover|preventDefault={() => (dragActive = true)}
-    on:dragleave|preventDefault={() => (dragActive = false)}
-    on:drop={onDrop}
-  >
-    <div class="drop-copy">
-      <span class="upload-icon">＋</span>
-      <div>
-        <strong>Drop a meme here</strong>
-        <span>or <button type="button" class="link-button" on:click={() => fileInput?.click()}>choose an image</button></span>
-      </div>
-    </div>
-    <span class="drop-hint">PNG, JPG, GIF or WebP · up to 20 MB · Ctrl+V works too</span>
-    <input bind:this={fileInput} class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" on:change={onFileInput} />
-  </section>
-
-  {#if uploadFile}
-    <section class="upload-editor" aria-label="New meme details">
-      <div class="editor-preview"><img src={uploadPreview} alt="Selected meme preview" /></div>
-      <div class="editor-fields">
-        <label>
-          <span>hashtags <small>(optional)</small></span>
-          <input bind:value={tagsInput} placeholder="#reaction #work #animals" maxlength="500" />
-        </label>
-        <label>
-          <span>description <small>(optional — AI fills this in)</small></span>
-          <input bind:value={description} placeholder="What is happening in this meme?" maxlength="500" />
-        </label>
-        {#if uploadMessage}<p class="form-error">{uploadMessage}</p>{/if}
-        <div class="editor-actions">
-          <button class="button primary" disabled={uploading} on:click={submitUpload}>{uploading ? 'Uploading…' : 'Add to library'}</button>
-          <button class="button" disabled={uploading} on:click={resetUpload}>Cancel</button>
+  <section class="control-dock" aria-label="Meme controls">
+    <div class="upload-row">
+      <section
+        class:drag-active={dragActive}
+        class="dropzone"
+        aria-label="Image upload drop zone"
+        on:dragenter|preventDefault={() => (dragActive = true)}
+        on:dragover|preventDefault={() => (dragActive = true)}
+        on:dragleave|preventDefault={() => (dragActive = false)}
+        on:drop={onDrop}
+      >
+        <div class="drop-copy">
+          <span class="upload-icon">＋</span>
+          <div>
+            <strong>Drop a meme here</strong>
+            <span>or <button type="button" class="link-button" on:click={() => fileInput?.click()}>choose an image</button></span>
+          </div>
         </div>
-      </div>
-    </section>
-  {/if}
+        <span class="drop-hint">PNG, JPG, GIF or WebP · up to 20 MB · Ctrl+V works too</span>
+        <input bind:this={fileInput} class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" on:change={onFileInput} />
+      </section>
+
+      <section
+        class:delete-active={deleteActive}
+        class="delete-zone"
+        aria-label="Delete meme drop zone"
+        on:dragover={onDeleteDragOver}
+        on:dragleave={onDeleteDragLeave}
+        on:drop={onDeleteDrop}
+      >
+        <span class="trash-icon" aria-hidden="true">⌫</span>
+        <div>
+          <strong>{deletingId ? 'Deleting…' : 'Drag here to delete'}</strong>
+          <span>{deleteError || 'release to remove forever'}</span>
+        </div>
+      </section>
+    </div>
+
+    {#if uploadFile}
+      <section class="upload-editor" aria-label="New meme details">
+        <div class="editor-preview"><img src={uploadPreview} alt="Selected meme preview" /></div>
+        <div class="editor-fields">
+          <label>
+            <span>hashtags <small>(optional)</small></span>
+            <input bind:value={tagsInput} placeholder="#reaction #work #animals" maxlength="500" />
+          </label>
+          <label>
+            <span>description <small>(optional — AI fills this in)</small></span>
+            <input bind:value={description} placeholder="What is happening in this meme?" maxlength="500" />
+          </label>
+          {#if uploadMessage}<p class="form-error">{uploadMessage}</p>{/if}
+          <div class="editor-actions">
+            <button class="button primary" disabled={uploading} on:click={submitUpload}>{uploading ? 'Uploading…' : 'Add to library'}</button>
+            <button class="button" disabled={uploading} on:click={resetUpload}>Cancel</button>
+          </div>
+        </div>
+      </section>
+    {/if}
+  </section>
 
   <div class="timeline-heading">
     <div>
@@ -308,7 +380,13 @@
   {:else}
     <section class="meme-grid" aria-label="Meme timeline">
       {#each memes as meme (meme.id)}
-        <article class="meme-card">
+        <article
+          class:dragging={draggedMemeId === meme.id}
+          class="meme-card"
+          draggable="true"
+          on:dragstart={(event) => startMemeDrag(event, meme)}
+          on:dragend={endMemeDrag}
+        >
           <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer">
             <img loading="lazy" src={`/media/${meme.id}`} alt={meme.description || 'Meme image'} />
           </a>

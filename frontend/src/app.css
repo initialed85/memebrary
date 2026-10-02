@@ -134,7 +134,22 @@ button:disabled {
   width: min(1460px, calc(100% - 40px));
   min-height: calc(100vh - 110px);
   margin: 0 auto;
-  padding: 22px 0 50px;
+  padding: 0 0 50px;
+}
+
+.control-dock {
+  position: sticky;
+  top: 56px;
+  z-index: 15;
+  padding: 22px 0 10px;
+  background: #fff;
+  box-shadow: 0 7px 10px -12px rgba(0, 0, 0, 0.35);
+}
+
+.upload-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 10px;
 }
 
 .dropzone {
@@ -154,6 +169,61 @@ button:disabled {
   border-color: #454545;
   background: #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.delete-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 82px;
+  padding: 12px 15px;
+  border: 1px dashed #e2caca;
+  border-radius: 5px;
+  background: #fffafa;
+  color: #a98282;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.delete-zone strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #956b6b;
+  font-size: 11px;
+}
+
+.delete-zone span:not(.trash-icon) {
+  display: block;
+  color: #bd9d9d;
+  font-size: 10px;
+}
+
+.delete-zone.delete-active,
+.delete-zone:hover {
+  border-color: #c66d6d;
+  background: #fff3f3;
+  color: #a33f3f;
+  box-shadow: 0 2px 10px rgba(145, 41, 41, 0.08);
+}
+
+.delete-zone.delete-active strong {
+  color: #a33f3f;
+}
+
+.delete-zone.delete-active span:not(.trash-icon) {
+  color: #b65c5c;
+}
+
+.trash-icon {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  transform: rotate(180deg);
 }
 
 .drop-copy {
@@ -355,7 +425,14 @@ small {
   border: 1px solid #dedede;
   border-radius: 4px;
   background: #fff;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  cursor: grab;
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.meme-card.dragging {
+  opacity: 0.42;
+  cursor: grabbing;
+  transform: scale(0.99);
 }
 
 .meme-card:hover {
@@ -585,7 +662,17 @@ footer {
   }
 
   .page {
+    padding-top: 0;
+  }
+
+  .control-dock {
+    top: 95px;
     padding-top: 14px;
+  }
+
+  .upload-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .dropzone {
@@ -596,6 +683,12 @@ footer {
   .drop-hint {
     display: block;
     margin: 10px 0 0 43px;
+  }
+
+  .delete-zone {
+    min-height: 58px;
+    justify-content: flex-start;
+    padding-left: 43px;
   }
 
   .upload-editor {
