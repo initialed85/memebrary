@@ -29,6 +29,8 @@
   let dragStartMemes = null;
   let dragDropHandled = false;
   let dragCancelled = false;
+  let dragCommitTargetId = '';
+  let dragCommitAfter = false;
   let reorderTargetId = '';
   let reorderTargetAfter = false;
   let deletingId = '';
@@ -163,6 +165,8 @@
     dragStartMemes = [...memes];
     dragDropHandled = false;
     dragCancelled = false;
+    dragCommitTargetId = '';
+    dragCommitAfter = false;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-memebrary-id', meme.id);
     event.dataTransfer.setData('text/plain', meme.id);
@@ -170,8 +174,8 @@
 
   function endMemeDrag() {
     const sourceID = draggedMemeId;
-    const targetID = reorderTargetId;
-    const after = reorderTargetAfter;
+    const targetID = dragCommitTargetId || reorderTargetId;
+    const after = dragCommitTargetId ? dragCommitAfter : reorderTargetAfter;
     const original = dragStartMemes;
     // dragend is the reliable release signal. Do not gate this on dropEffect:
     // Chromium can report "none" when the DOM reflows beneath a native drag.
@@ -185,6 +189,8 @@
     dragStartMemes = null;
     dragDropHandled = false;
     dragCancelled = false;
+    dragCommitTargetId = '';
+    dragCommitAfter = false;
     reorderTargetId = '';
     reorderTargetAfter = false;
     deleteActive = false;
@@ -194,6 +200,8 @@
     if (event.key !== 'Escape' || !draggedMemeId) return;
     dragCancelled = true;
     if (dragStartMemes) memes = dragStartMemes;
+    dragCommitTargetId = '';
+    dragCommitAfter = false;
     reorderTargetId = '';
     reorderTargetAfter = false;
   }
@@ -222,6 +230,8 @@
       next.splice(Math.max(0, adjustedTargetIndex + (after ? 1 : 0)), 0, source);
       memes = next;
     }
+    dragCommitTargetId = meme.id;
+    dragCommitAfter = after;
     reorderTargetId = meme.id;
     reorderTargetAfter = after;
     return true;
@@ -320,6 +330,8 @@
         try { body = await response.json(); } catch {}
         throw new Error(body?.error || `Reorder failed (${response.status})`);
       }
+      // Reconcile the optimistic preview with the server's canonical order.
+      await refreshLatest();
     } catch (err) {
       memes = oldMemes;
       error = err.message;
@@ -352,6 +364,8 @@
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     if (dragStartMemes) memes = dragStartMemes;
+    dragCommitTargetId = '';
+    dragCommitAfter = false;
     reorderTargetId = '';
     reorderTargetAfter = false;
     deleteActive = true;
