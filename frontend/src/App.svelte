@@ -17,6 +17,7 @@
   let fileInput;
   let observer;
   let pollTimer;
+  let filterTimer;
   let pollInFlight = false;
   let viewerId = '';
   $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
@@ -133,7 +134,13 @@
     load(true);
   }
 
+  function onTagInput() {
+    if (filterTimer) window.clearTimeout(filterTimer);
+    filterTimer = window.setTimeout(() => applyTag(), 300);
+  }
+
   function clearTag() {
+    if (filterTimer) window.clearTimeout(filterTimer);
     selectedTag = '';
     tagQuery = '';
     load(true);
@@ -650,6 +657,7 @@
       window.removeEventListener('paste', onPaste);
       window.removeEventListener('keydown', onKeyDown)
       window.clearInterval(pollTimer);
+      if (filterTimer) window.clearTimeout(filterTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
       document.body.style.overflow = '';
     };
@@ -668,7 +676,7 @@
     <span class="anonymous" title="The timeline refreshes every 8 seconds"><span class="dot"></span> anonymous · live</span>
     <form class="filter" on:submit={applyTag}>
       <label for="tag-filter">filter</label>
-      <input id="tag-filter" bind:value={tagQuery} placeholder="#cats" autocomplete="off" />
+      <input id="tag-filter" bind:value={tagQuery} on:input={onTagInput} placeholder="#cats" autocomplete="off" />
       {#if selectedTag}
         <button class="clear-filter" type="button" on:click={clearTag} aria-label="Clear tag filter">×</button>
       {/if}
