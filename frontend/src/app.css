@@ -446,13 +446,16 @@ small {
 }
 
 .tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 6px;
+  display: block;
+  overflow: hidden;
+  margin-bottom: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .tags button {
+  display: inline-block;
+  margin-right: 4px;
   padding: 2px 5px;
   border: 1px solid #dedede;
   border-radius: 3px;

@@ -770,7 +770,7 @@
           {#if meme.tags?.length}
             <div class="card-details">
               <div class="tags">
-                {#each meme.tags.slice(0, 3) as tag}<button on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
+                {#each meme.tags as tag}<button on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
               </div>
             </div>
           {/if}
