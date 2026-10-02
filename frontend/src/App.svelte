@@ -22,6 +22,8 @@
   let viewerId = '';
   let viewerTouchStartX = 0;
   let viewerTouchStartY = 0;
+  let viewerAnimationKey = 0;
+  let viewerDirection = '';
   $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
   $: viewerMeme = viewerIndex >= 0 ? memes[viewerIndex] : null;
 
@@ -196,8 +198,10 @@
     window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
   }
 
-  function showViewer(id, replace = false) {
+  function showViewer(id, replace = false, direction = '') {
     viewerId = id;
+    viewerDirection = direction;
+    viewerAnimationKey += 1;
     document.body.style.overflow = 'hidden';
     setRoute(`/meme/${id}`, replace);
   }
@@ -215,12 +219,13 @@
 
   function closeViewer(updateRoute = true) {
     viewerId = '';
+    viewerDirection = '';
     document.body.style.overflow = '';
     if (updateRoute && routeState().mode === 'modal') setRoute('/');
   }
 
   function viewerPrevious() {
-    if (viewerIndex > 0) showViewer(memes[viewerIndex - 1].id, true);
+    if (viewerIndex > 0) showViewer(memes[viewerIndex - 1].id, true, 'prev');
   }
 
   function onViewerTouchStart(event) {
@@ -241,7 +246,7 @@
 
   async function viewerNext() {
     if (viewerIndex < memes.length - 1) {
-      showViewer(memes[viewerIndex + 1].id, true);
+      showViewer(memes[viewerIndex + 1].id, true, 'next');
       return;
     }
     if (!nextCursor || loadingMore) return;
@@ -849,7 +854,8 @@
     <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation on:touchstart={onViewerTouchStart} on:touchend={onViewerTouchEnd}>
       <button class="viewer-close" aria-label="Close image viewer" on:click={closeViewer}>×</button>
       <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
-      <figure>
+      {#key viewerAnimationKey}
+      <figure class:viewer-slide-next={viewerDirection === 'next'} class:viewer-slide-prev={viewerDirection === 'prev'}>
         <img class="viewer-image" src={`/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
         {#if viewerMeme.description}
           <figcaption>{viewerMeme.description}</figcaption>
@@ -859,6 +865,7 @@
           <figcaption class="viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></figcaption>
         {/if}
       </figure>
+      {/key}
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
       <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}{#if viewerMeme.tags?.length}<span>{viewerMeme.tags.map((tag) => `#${tag}`).join(' ')}</span>{/if}</div>
     </dialog>

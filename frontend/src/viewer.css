@@ -42,6 +42,24 @@
   object-fit: contain;
 }
 
+.viewer-slide-next {
+  animation: viewer-slide-next 180ms ease-out;
+}
+
+.viewer-slide-prev {
+  animation: viewer-slide-prev 180ms ease-out;
+}
+
+@keyframes viewer-slide-next {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes viewer-slide-prev {
+  from { opacity: 0; transform: translateX(-28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .viewer figcaption {
   width: min(700px, 100%);
   margin-top: 12px;
@@ -68,16 +86,16 @@
 
 .viewer-close {
   position: absolute;
-  top: 6px;
-  right: 8px;
+  top: 4px;
+  right: 5px;
   z-index: 1;
-  width: 28px;
-  height: 28px;
+  width: 17px;
+  height: 17px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #888;
-  font-size: 25px;
+  font-size: 16px;
   line-height: 1;
 }
 
