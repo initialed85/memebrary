@@ -26,6 +26,8 @@
   let dragActive = false;
   let deleteActive = false;
   let draggedMemeId = '';
+  let dragStartMemes = null;
+  let dragDropHandled = false;
   let reorderTargetId = '';
   let reorderTargetAfter = false;
   let deletingId = '';
@@ -157,13 +159,18 @@
 
   function startMemeDrag(event, meme) {
     draggedMemeId = meme.id;
+    dragStartMemes = [...memes];
+    dragDropHandled = false;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-memebrary-id', meme.id);
     event.dataTransfer.setData('text/plain', meme.id);
   }
 
   function endMemeDrag() {
+    if (dragStartMemes && !dragDropHandled) memes = dragStartMemes;
     draggedMemeId = '';
+    dragStartMemes = null;
+    dragDropHandled = false;
     reorderTargetId = '';
     reorderTargetAfter = false;
     deleteActive = false;
@@ -180,17 +187,26 @@
     return Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
   }
 
-  function setReorderTarget(event, card, meme) {
+  function previewReorder(event, card, meme, after = dropIsAfter(event, card)) {
     if (!card || !meme || draggedMemeId === meme.id || !isMemeDrag(event)) return false;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+    const sourceIndex = memes.findIndex((item) => item.id === draggedMemeId);
+    const targetIndex = memes.findIndex((item) => item.id === meme.id);
+    if (sourceIndex >= 0 && targetIndex >= 0) {
+      const next = [...memes];
+      const [source] = next.splice(sourceIndex, 1);
+      const adjustedTargetIndex = next.findIndex((item) => item.id === meme.id);
+      next.splice(Math.max(0, adjustedTargetIndex + (after ? 1 : 0)), 0, source);
+      memes = next;
+    }
     reorderTargetId = meme.id;
-    reorderTargetAfter = dropIsAfter(event, card);
+    reorderTargetAfter = after;
     return true;
   }
 
   function onCardDragOver(event, meme) {
-    setReorderTarget(event, event.currentTarget, meme);
+    previewReorder(event, event.currentTarget, meme);
   }
 
   function onCardDragLeave(event) {
@@ -259,11 +275,8 @@
     if (!isMemeDrag(event)) return;
     const target = findDropTarget(event);
     const meme = memes.find((item) => item.id === target?.card?.dataset.memeId);
-    if (!target || !meme || draggedMemeId === meme.id) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    reorderTargetId = meme.id;
-    reorderTargetAfter = target.after;
+    if (!target || !meme) return;
+    previewReorder(event, target.card, meme, target.after);
   }
 
   function onTimelineDragLeave(event) {
@@ -279,15 +292,8 @@
     reorderTargetId = '';
     reorderTargetAfter = false;
     if (!sourceID || sourceID === target.id) return;
-    const oldMemes = memes;
-    const sourceIndex = memes.findIndex((item) => item.id === sourceID);
-    const targetIndex = memes.findIndex((item) => item.id === target.id);
-    if (sourceIndex < 0 || targetIndex < 0) return;
-    const next = [...memes];
-    const [source] = next.splice(sourceIndex, 1);
-    const adjustedTargetIndex = next.findIndex((item) => item.id === target.id);
-    next.splice(Math.max(0, adjustedTargetIndex + (after ? 1 : 0)), 0, source);
-    memes = next;
+    const oldMemes = dragStartMemes || memes;
+    dragDropHandled = true;
     try {
       const response = await fetch(`/api/memes/${sourceID}/order`, {
         method: 'PATCH',
@@ -319,6 +325,9 @@
     if (!Array.from(event.dataTransfer.types).includes('application/x-memebrary-id')) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+    if (dragStartMemes) memes = dragStartMemes;
+    reorderTargetId = '';
+    reorderTargetAfter = false;
     deleteActive = true;
   }
 
@@ -333,6 +342,9 @@
     const meme = memes.find((item) => item.id === id);
     if (!meme || deletingId) return;
     if (!window.confirm('Delete this meme permanently?')) return;
+    const oldMemes = dragStartMemes || memes;
+    dragDropHandled = true;
+    memes = oldMemes;
     deletingId = meme.id;
     deleteError = '';
     try {
@@ -513,7 +525,7 @@
       <h1>{selectedTag ? `#${selectedTag}` : 'Latest memes'}</h1>
       {#if total}<span class="result-count">{total.toLocaleString()} {total === 1 ? 'meme' : 'memes'}</span>{/if}
     </div>
-    <span class="reorder-hint">drag cards to tell a story</span>
+    <span class="reorder-hint">{draggedMemeId ? 'release to commit order' : 'drag cards to tell a story'}</span>
     {#if selectedTag}<button class="quiet-button" on:click={clearTag}>show everything</button>{/if}
   </div>
 
