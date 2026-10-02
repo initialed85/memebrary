@@ -30,6 +30,8 @@
   let uploadFile;
   let uploadPreview = '';
   let tagsInput = '';
+  let tagInput = '';
+  let addingTags = false;
   let dragActive = false;
   let deleteActive = false;
   let draggedMemeId = '';
@@ -677,6 +679,24 @@
     }
   }
 
+  async function addTags() {
+    if (!viewerMeme || !tagInput.trim() || addingTags) return;
+    addingTags = true;
+    try {
+      const updated = await api(`/api/memes/${viewerMeme.id}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: tagInput.split(/[\\s,]+/).filter(Boolean) })
+      });
+      memes = memes.map((item) => (item.id === updated.id ? updated : item));
+      tagInput = '';
+    } catch (err) {
+      error = err.message;
+    } finally {
+      addingTags = false;
+    }
+  }
+
   async function retryDescription(meme) {
     try {
       const pending = await api(`/api/memes/${meme.id}/describe`, { method: 'POST' });
@@ -867,7 +887,14 @@
       </figure>
       {/key}
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
-      <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}{#if viewerMeme.tags?.length}<span>{viewerMeme.tags.map((tag) => `#${tag}`).join(' ')}</span>{/if}</div>
+      <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}</div>
+      <div class="viewer-tags">
+        {#each viewerMeme.tags || [] as tag}<button type="button" on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
+        <form on:submit|preventDefault={addTags}>
+          <input bind:value={tagInput} placeholder="add tags" aria-label="Add tags" />
+          <button type="submit" disabled={addingTags || !tagInput.trim()}>+</button>
+        </form>
+      </div>
     </dialog>
   </div>
 {/if}
