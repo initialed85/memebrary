@@ -25,6 +25,7 @@
   let dragActive = false;
   let deleteActive = false;
   let draggedMemeId = '';
+  let reorderTargetId = '';
   let deletingId = '';
   let uploading = false;
   let uploadMessage = '';
@@ -161,7 +162,51 @@
 
   function endMemeDrag() {
     draggedMemeId = '';
+    reorderTargetId = '';
     deleteActive = false;
+  }
+
+  function onCardDragOver(event, meme) {
+    const types = Array.from(event.dataTransfer.types);
+    if (!types.includes('application/x-memebrary-id') || draggedMemeId === meme.id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    reorderTargetId = meme.id;
+  }
+
+  function onCardDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) reorderTargetId = '';
+  }
+
+  async function onCardDrop(event, target) {
+    event.preventDefault();
+    const sourceID = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
+    reorderTargetId = '';
+    if (!sourceID || sourceID === target.id) return;
+    const oldMemes = memes;
+    const sourceIndex = memes.findIndex((item) => item.id === sourceID);
+    const targetIndex = memes.findIndex((item) => item.id === target.id);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const next = [...memes];
+    const [source] = next.splice(sourceIndex, 1);
+    const insertAt = next.findIndex((item) => item.id === target.id);
+    next.splice(insertAt < 0 ? targetIndex : insertAt, 0, source);
+    memes = next;
+    try {
+      const response = await fetch(`/api/memes/${sourceID}/order`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ before_id: target.id })
+      });
+      if (!response.ok) {
+        let body = null;
+        try { body = await response.json(); } catch {}
+        throw new Error(body?.error || `Reorder failed (${response.status})`);
+      }
+    } catch (err) {
+      memes = oldMemes;
+      error = err.message;
+    }
   }
 
   function onDeleteDragOver(event) {
@@ -362,6 +407,7 @@
       <h1>{selectedTag ? `#${selectedTag}` : 'Latest memes'}</h1>
       {#if total}<span class="result-count">{total.toLocaleString()} {total === 1 ? 'meme' : 'memes'}</span>{/if}
     </div>
+    <span class="reorder-hint">drag cards to tell a story</span>
     {#if selectedTag}<button class="quiet-button" on:click={clearTag}>show everything</button>{/if}
   </div>
 
@@ -382,10 +428,15 @@
       {#each memes as meme (meme.id)}
         <article
           class:dragging={draggedMemeId === meme.id}
+          class:reorder-target={reorderTargetId === meme.id}
           class="meme-card"
+          title="Drag to rearrange · drag to the red area to delete"
           draggable="true"
           on:dragstart={(event) => startMemeDrag(event, meme)}
           on:dragend={endMemeDrag}
+          on:dragover={(event) => onCardDragOver(event, meme)}
+          on:dragleave={onCardDragLeave}
+          on:drop={(event) => onCardDrop(event, meme)}
         >
           <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer">
             <img loading="lazy" src={`/media/${meme.id}`} alt={meme.description || 'Meme image'} />

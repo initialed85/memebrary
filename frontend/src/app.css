@@ -406,6 +406,13 @@ small {
   font-size: 10px;
 }
 
+.reorder-hint {
+  margin-left: auto;
+  margin-right: 8px;
+  color: #aaa;
+  font-size: 10px;
+}
+
 .quiet-button {
   padding: 4px 8px;
   border: 0;
@@ -433,6 +440,11 @@ small {
   opacity: 0.42;
   cursor: grabbing;
   transform: scale(0.99);
+}
+
+.meme-card.reorder-target {
+  border-color: #6b82a8;
+  box-shadow: 0 0 0 2px rgba(107, 130, 168, 0.22), inset 0 3px 0 #6b82a8;
 }
 
 .meme-card:hover {
@@ -714,6 +726,10 @@ footer {
 
   .editor-actions {
     margin-left: 0;
+  }
+
+  .reorder-hint {
+    display: none;
   }
 
   .meme-grid,
