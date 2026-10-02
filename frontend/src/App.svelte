@@ -849,7 +849,14 @@
         on:dragleave={onDeleteDragLeave}
         on:drop={onDeleteDrop}
       >
-        <span class="trash-icon" aria-hidden="true">🗑️</span>
+        <span class="trash-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h16" />
+            <path d="M9 7V4h6v3" />
+            <path d="M7 7l1 13h8l1-13" />
+            <path d="M10 11v5M14 11v5" />
+          </svg>
+        </span>
         <div>
           <strong>{deletingId ? 'Deleting…' : 'Drag here to delete'}</strong>
           <span>{deleteError || 'release to remove forever'}</span>

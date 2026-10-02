@@ -221,8 +221,12 @@ button:disabled {
   place-items: center;
   border: 1px solid currentColor;
   border-radius: 50%;
-  font-size: 16px;
   line-height: 1;
+}
+
+.trash-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
 .drop-copy {
@@ -709,7 +713,11 @@ footer {
   .trash-icon {
     width: 21px;
     height: 21px;
-    font-size: 15px;
+  }
+
+  .trash-icon svg {
+    width: 13px;
+    height: 13px;
   }
 
   .upload-editor {
