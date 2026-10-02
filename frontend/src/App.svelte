@@ -658,8 +658,7 @@
     </a>
     <span class="anonymous" title="The timeline refreshes every 8 seconds"><span class="dot"></span> anonymous · live</span>
     <form class="filter" on:submit={applyTag}>
-      <label for="tag-filter">filter</label>
-      <input id="tag-filter" bind:value={tagQuery} on:input={onTagInput} placeholder="#cats" autocomplete="off" />
+      <input id="tag-filter" bind:value={tagQuery} on:input={onTagInput} placeholder="#search tags" aria-label="Search hashtags" autocomplete="off" />
       {#if selectedTag}
         <button class="clear-filter" type="button" on:click={clearTag} aria-label="Clear tag filter">×</button>
       {/if}
@@ -782,7 +781,6 @@
 
   <div bind:this={sentinel} class="load-sentinel" aria-hidden="true"></div>
   {#if loadingMore}<p class="loading-more">loading more…</p>{/if}
-  {#if !loading && !nextCursor && memes.length > 0}<p class="end-note">— end of the archive —</p>{/if}
 </main>
 
 {#if viewerMeme}
