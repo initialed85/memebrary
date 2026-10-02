@@ -439,8 +439,12 @@ small {
 }
 
 .card-details {
-  min-height: 68px;
-  padding: 9px 10px 7px;
+  min-height: 0;
+  padding: 6px 10px 5px;
+}
+
+.card-details .tags {
+  margin-bottom: 0;
 }
 
 .tags {
@@ -751,10 +755,6 @@ footer {
   .card-details {
     min-height: 0;
     padding: 6px 7px 4px;
-  }
-
-  .card-details .tags {
-    margin-bottom: 0;
   }
 
   .card-footer span {
