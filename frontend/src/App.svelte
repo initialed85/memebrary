@@ -737,15 +737,6 @@
     {/if}
   </section>
 
-  <div class="timeline-heading">
-    <div>
-      <h1>{selectedTag ? `#${selectedTag}` : 'Latest memes'}</h1>
-      {#if total}<span class="result-count">{total.toLocaleString()} {total === 1 ? 'meme' : 'memes'}</span>{/if}
-    </div>
-    <span class="reorder-hint">{draggedMemeId ? 'release to commit order' : 'drag cards to tell a story'}</span>
-    {#if selectedTag}<button class="quiet-button" on:click={clearTag}>show everything</button>{/if}
-  </div>
-
   {#if error}
     <div class="notice error" role="alert"><strong>Couldn’t load the library.</strong> {error} <button on:click={() => load(true)}>Try again</button></div>
   {/if}
