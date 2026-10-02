@@ -1,0 +1,140 @@
+.viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  background: rgba(20, 20, 20, 0.82);
+}
+
+.viewer {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: center;
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 60px);
+  padding: 18px 14px 10px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 12px 55px rgba(0, 0, 0, 0.35);
+}
+
+.viewer figure {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-height: calc(100vh - 120px);
+  margin: 0;
+}
+
+.viewer-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100vh - 170px);
+  object-fit: contain;
+}
+
+.viewer figcaption {
+  width: min(700px, 100%);
+  margin-top: 12px;
+  color: #555;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.viewer-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #888;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.viewer-close:hover {
+  color: #222;
+}
+
+.viewer-arrow {
+  display: grid;
+  width: 32px;
+  height: 48px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #555;
+  font-family: Georgia, serif;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.viewer-arrow:hover:not(:disabled) {
+  border-color: #999;
+  color: #111;
+}
+
+.viewer-arrow:disabled {
+  visibility: hidden;
+}
+
+.viewer-prev {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.viewer-next {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.viewer-meta {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  min-height: 15px;
+  margin-top: 7px;
+  color: #aaa;
+  font-size: 10px;
+}
+
+.viewer-meta span {
+  color: #777;
+}
+
+@media (max-width: 650px) {
+  .viewer-backdrop {
+    padding: 10px;
+  }
+
+  .viewer {
+    grid-template-columns: 35px minmax(0, 1fr) 35px;
+    max-height: calc(100vh - 20px);
+    padding: 22px 5px 8px;
+  }
+
+  .viewer-image {
+    max-height: calc(100vh - 125px);
+  }
+}

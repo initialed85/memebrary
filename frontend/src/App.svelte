@@ -18,6 +18,9 @@
   let observer;
   let pollTimer;
   let pollInFlight = false;
+  let viewerId = '';
+  $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
+  $: viewerMeme = viewerIndex >= 0 ? memes[viewerIndex] : null;
 
   let uploadFile;
   let uploadPreview = '';
@@ -158,6 +161,47 @@
 
   function preventWindowDrop(event) {
     event.preventDefault();
+  }
+
+  function openViewer(event, meme) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    viewerId = meme.id;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeViewer() {
+    viewerId = '';
+    document.body.style.overflow = '';
+  }
+
+  function viewerPrevious() {
+    if (viewerIndex > 0) viewerId = memes[viewerIndex - 1].id;
+  }
+
+  async function viewerNext() {
+    if (viewerIndex < memes.length - 1) {
+      viewerId = memes[viewerIndex + 1].id;
+      return;
+    }
+    if (!nextCursor || loadingMore) return;
+    await load(false);
+    if (viewerIndex < memes.length - 1) viewerId = memes[viewerIndex + 1].id;
+  }
+
+  function onKeyDown(event) {
+    cancelMemeDrag(event);
+    if (!viewerMeme) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeViewer();
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      viewerPrevious();
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      void viewerNext();
+    }
   }
 
   function startMemeDrag(event, meme) {
@@ -463,7 +507,7 @@
     window.addEventListener('dragover', preventWindowDrop);
     window.addEventListener('drop', preventWindowDrop);
     window.addEventListener('paste', onPaste);
-    window.addEventListener('keydown', cancelMemeDrag);
+    window.addEventListener('keydown', onKeyDown)
     pollTimer = window.setInterval(refreshLatest, 8000);
     observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && nextCursor && !loadingMore) load(false);
@@ -474,9 +518,10 @@
       window.removeEventListener('dragover', preventWindowDrop);
       window.removeEventListener('drop', preventWindowDrop);
       window.removeEventListener('paste', onPaste);
-      window.removeEventListener('keydown', cancelMemeDrag);
+      window.removeEventListener('keydown', onKeyDown)
       window.clearInterval(pollTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
+      document.body.style.overflow = '';
     };
   });
 </script>
@@ -607,7 +652,7 @@
           on:dragleave={onCardDragLeave}
           on:drop|stopPropagation={(event) => onCardDrop(event, meme)}
         >
-          <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer">
+          <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer" on:click={(event) => openViewer(event, meme)}>
             <img loading="lazy" src={`/media/${meme.id}`} alt={meme.description || 'Meme image'} />
           </a>
           <div class="card-details">
@@ -636,5 +681,20 @@
   {#if loadingMore}<p class="loading-more">loading more…</p>{/if}
   {#if !loading && !nextCursor && memes.length > 0}<p class="end-note">— end of the archive —</p>{/if}
 </main>
+
+{#if viewerMeme}
+  <div class="viewer-backdrop" role="presentation" on:click={closeViewer}>
+    <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation>
+      <button class="viewer-close" aria-label="Close image viewer" on:click={closeViewer}>×</button>
+      <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
+      <figure>
+        <img class="viewer-image" src={`/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
+        {#if viewerMeme.description}<figcaption>{viewerMeme.description}</figcaption>{/if}
+      </figure>
+      <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
+      <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}{#if viewerMeme.tags?.length}<span>{viewerMeme.tags.map((tag) => `#${tag}`).join(' ')}</span>{/if}</div>
+    </dialog>
+  </div>
+{/if}
 
 <footer><span>meme/brary</span><span>no accounts · no tracking · just memes</span></footer>
