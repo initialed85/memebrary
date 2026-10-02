@@ -222,6 +222,10 @@ func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListRe
 	// for populated pages.
 	if len(objects) == 0 {
 		totalCount = 0
+	} else if totalCount < int64(len(objects)) {
+		// A stale planner estimate must never claim fewer records than the
+		// rows returned in this page.
+		totalCount = int64(len(objects))
 	}
 	return ListResult{Memes: memes, NextCursor: next, Total: int(totalCount)}, nil
 }
