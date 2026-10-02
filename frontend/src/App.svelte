@@ -28,6 +28,7 @@
   let draggedMemeId = '';
   let dragStartMemes = null;
   let dragDropHandled = false;
+  let dragCancelled = false;
   let reorderTargetId = '';
   let reorderTargetAfter = false;
   let deletingId = '';
@@ -161,18 +162,20 @@
     draggedMemeId = meme.id;
     dragStartMemes = [...memes];
     dragDropHandled = false;
+    dragCancelled = false;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-memebrary-id', meme.id);
     event.dataTransfer.setData('text/plain', meme.id);
   }
 
-  function endMemeDrag(event) {
+  function endMemeDrag() {
     const sourceID = draggedMemeId;
     const targetID = reorderTargetId;
     const after = reorderTargetAfter;
     const original = dragStartMemes;
-    const accepted = event?.dataTransfer?.dropEffect === 'move';
-    if (original && sourceID && targetID && sourceID !== targetID && !dragDropHandled && accepted) {
+    // dragend is the reliable release signal. Do not gate this on dropEffect:
+    // Chromium can report "none" when the DOM reflows beneath a native drag.
+    if (original && sourceID && targetID && sourceID !== targetID && !dragDropHandled && !dragCancelled) {
       dragDropHandled = true;
       void commitOrder(sourceID, targetID, after, original);
     } else if (original && !dragDropHandled) {
@@ -181,9 +184,18 @@
     draggedMemeId = '';
     dragStartMemes = null;
     dragDropHandled = false;
+    dragCancelled = false;
     reorderTargetId = '';
     reorderTargetAfter = false;
     deleteActive = false;
+  }
+
+  function cancelMemeDrag(event) {
+    if (event.key !== 'Escape' || !draggedMemeId) return;
+    dragCancelled = true;
+    if (dragStartMemes) memes = dragStartMemes;
+    reorderTargetId = '';
+    reorderTargetAfter = false;
   }
 
   function isMemeDrag(event) {
@@ -437,6 +449,7 @@
     window.addEventListener('dragover', preventWindowDrop);
     window.addEventListener('drop', preventWindowDrop);
     window.addEventListener('paste', onPaste);
+    window.addEventListener('keydown', cancelMemeDrag);
     pollTimer = window.setInterval(refreshLatest, 8000);
     observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && nextCursor && !loadingMore) load(false);
@@ -447,6 +460,7 @@
       window.removeEventListener('dragover', preventWindowDrop);
       window.removeEventListener('drop', preventWindowDrop);
       window.removeEventListener('paste', onPaste);
+      window.removeEventListener('keydown', cancelMemeDrag);
       window.clearInterval(pollTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
     };
