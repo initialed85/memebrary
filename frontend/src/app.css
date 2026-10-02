@@ -343,6 +343,7 @@ small {
   border-radius: 3px;
   color: #333;
   outline: none;
+  font-size: 11px;
 }
 
 .editor-fields input:focus {
