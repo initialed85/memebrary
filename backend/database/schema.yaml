@@ -1,0 +1,24 @@
+objects:
+  - name: meme
+    properties:
+      - filename TEXT NOT NULL UNIQUE
+      - original_name TEXT NOT NULL
+      - mime_type TEXT NOT NULL
+      - size INTEGER NOT NULL
+      - description TEXT NOT NULL DEFAULT ''
+      - description_status TEXT NOT NULL DEFAULT 'none'
+      - description_generated INTEGER NOT NULL DEFAULT 0
+      - sort_order INTEGER NOT NULL DEFAULT 0
+      - metadata_version INTEGER NOT NULL DEFAULT 0
+    claims:
+      - ai_worker
+
+  - name: tag
+    properties:
+      - name TEXT NOT NULL UNIQUE
+
+relationships:
+  - source: tag
+    destination: meme
+    type: many-to-many
+    name: meme_tag
