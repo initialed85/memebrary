@@ -200,29 +200,70 @@
     }
   }
 
-  function nearestCard(event) {
+  function findDropTarget(event) {
     if (!memeGrid) return null;
-    const cards = [...memeGrid.querySelectorAll('.meme-card')];
-    let nearest = null;
+    const cards = [...memeGrid.querySelectorAll('.meme-card')].map((card) => ({
+      card,
+      rect: card.getBoundingClientRect()
+    }));
+    if (cards.length === 0) return null;
+
+    const rows = [];
+    for (const item of cards) {
+      let row = rows.find((candidate) => Math.abs(candidate.top - item.rect.top) < 4);
+      if (!row) {
+        row = { top: item.rect.top, bottom: item.rect.bottom, cards: [] };
+        rows.push(row);
+      }
+      row.bottom = Math.max(row.bottom, item.rect.bottom);
+      row.cards.push(item);
+    }
+    rows.sort((a, b) => a.top - b.top);
+    for (const row of rows) row.cards.sort((a, b) => a.rect.left - b.rect.left);
+
+    const row = rows.reduce((closest, candidate) => {
+      const distance = event.clientY < candidate.top
+        ? candidate.top - event.clientY
+        : event.clientY > candidate.bottom
+          ? event.clientY - candidate.bottom
+          : 0;
+      return !closest || distance < closest.distance ? { row: candidate, distance } : closest;
+    }, null)?.row;
+    if (!row) return null;
+
+    // The horizontal space beyond a row is an explicit first/last insertion
+    // zone, rather than requiring a precise drop on the edge card.
+    if (event.clientX < row.cards[0].rect.left) {
+      return { card: row.cards[0].card, after: false };
+    }
+    const last = row.cards[row.cards.length - 1];
+    if (event.clientX > last.rect.right) {
+      return { card: last.card, after: true };
+    }
+
+    let nearest = row.cards[0];
     let distance = Infinity;
-    for (const card of cards) {
-      const rect = card.getBoundingClientRect();
-      const dx = event.clientX - (rect.left + rect.width / 2);
-      const dy = event.clientY - (rect.top + rect.height / 2);
+    for (const item of row.cards) {
+      const dx = event.clientX - (item.rect.left + item.rect.width / 2);
+      const dy = event.clientY - (item.rect.top + item.rect.height / 2);
       const nextDistance = dx * dx + dy * dy;
       if (nextDistance < distance) {
         distance = nextDistance;
-        nearest = card;
+        nearest = item;
       }
     }
-    return nearest;
+    return { card: nearest.card, after: dropIsAfter(event, nearest.card) };
   }
 
   function onTimelineDragOver(event) {
     if (!isMemeDrag(event)) return;
-    const card = nearestCard(event);
-    const meme = memes.find((item) => item.id === card?.dataset.memeId);
-    setReorderTarget(event, card, meme);
+    const target = findDropTarget(event);
+    const meme = memes.find((item) => item.id === target?.card?.dataset.memeId);
+    if (!target || !meme || draggedMemeId === meme.id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    reorderTargetId = meme.id;
+    reorderTargetAfter = target.after;
   }
 
   function onTimelineDragLeave(event) {
