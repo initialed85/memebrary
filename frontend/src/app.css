@@ -639,6 +639,12 @@ footer {
   .filter input {
     flex: 1;
     width: auto;
+    /* iOS Safari zooms focused controls smaller than 16px. */
+    font-size: 16px;
+  }
+
+  .editor-fields input {
+    font-size: 16px;
   }
 
   .page {
