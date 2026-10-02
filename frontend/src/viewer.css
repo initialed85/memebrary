@@ -190,6 +190,12 @@
   color: #222;
 }
 
+.viewer-tags > button.tag-delete-ready {
+  border-color: #b44;
+  background: #fff0f0;
+  color: #a22;
+}
+
 .viewer-tags form {
   display: inline-flex;
   gap: 3px;

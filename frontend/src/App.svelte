@@ -32,6 +32,13 @@
   let tagsInput = '';
   let tagInput = '';
   let addingTags = false;
+  let tagDeleteMemeId = '';
+  let tagDeleteName = '';
+  let tagDeleteTimer;
+  let tagDeleteActive = false;
+  let tagDeleteOver = false;
+  let tagDeletePointerId = null;
+  let suppressTagClick = false;
   let dragActive = false;
   let deleteActive = false;
   let draggedMemeId = '';
@@ -126,6 +133,10 @@
   }
 
   function chooseTag(tag) {
+    if (suppressTagClick) {
+      suppressTagClick = false;
+      return;
+    }
     selectedTag = selectedTag === tag ? '' : tag;
     tagQuery = selectedTag ? `#${selectedTag}` : '';
     load(true);
@@ -610,8 +621,8 @@
     deleteActive = true;
   }
 
-  function onDeleteDragLeave() {
-    deleteActive = false;
+  function onDeleteDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) deleteActive = false;
   }
 
   async function deleteMemeByID(id) {
@@ -676,6 +687,60 @@
       uploadMessage = err.message;
     } finally {
       uploading = false;
+    }
+  }
+
+  function clearTagDelete() {
+    if (tagDeleteTimer) window.clearTimeout(tagDeleteTimer);
+    tagDeleteTimer = undefined;
+    tagDeleteMemeId = '';
+    tagDeleteName = '';
+    tagDeleteActive = false;
+    tagDeleteOver = false;
+    tagDeletePointerId = null;
+  }
+
+  function onTagPointerDown(event, meme, tag) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    clearTagDelete();
+    tagDeleteMemeId = meme.id;
+    tagDeleteName = tag;
+    tagDeletePointerId = event.pointerId;
+    tagDeleteTimer = window.setTimeout(() => {
+      tagDeleteActive = true;
+      suppressTagClick = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    }, 550);
+  }
+
+  function onTagPointerMove(event) {
+    if (!tagDeleteMemeId || event.pointerId !== tagDeletePointerId) return;
+    if (!tagDeleteActive) return;
+    const button = document.elementFromPoint(event.clientX, event.clientY);
+    tagDeleteOver = button === event.currentTarget;
+  }
+
+  async function onTagPointerUp(event) {
+    if (!tagDeleteMemeId) return;
+    if (tagDeleteTimer) window.clearTimeout(tagDeleteTimer);
+    const shouldDelete = tagDeleteActive && tagDeleteOver;
+    const memeId = tagDeleteMemeId;
+    const tag = tagDeleteName;
+    if (tagDeleteActive) suppressTagClick = true;
+    clearTagDelete();
+    if (shouldDelete) await removeTag(memeId, tag);
+  }
+
+  function onTagPointerCancel() {
+    clearTagDelete();
+  }
+
+  async function removeTag(memeId, tag) {
+    try {
+      const updated = await api(`/api/memes/${memeId}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' });
+      memes = memes.map((item) => (item.id === updated.id ? updated : item));
+    } catch (err) {
+      error = err.message;
     }
   }
 
@@ -779,6 +844,7 @@
         class:delete-active={deleteActive}
         class="delete-zone"
         aria-label="Delete meme drop zone"
+        on:dragenter={onDeleteDragOver}
         on:dragover={onDeleteDragOver}
         on:dragleave={onDeleteDragLeave}
         on:drop={onDeleteDrop}
@@ -888,7 +954,17 @@
       {/if}
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
       <div class="viewer-tags">
-        {#each viewerMeme.tags || [] as tag}<button type="button" on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
+        {#each viewerMeme.tags || [] as tag}
+          <button
+            type="button"
+            class:tag-delete-ready={tagDeleteActive && tagDeleteMemeId === viewerMeme.id && tagDeleteName === tag && tagDeleteOver}
+            on:click={() => chooseTag(tag)}
+            on:pointerdown={(event) => onTagPointerDown(event, viewerMeme, tag)}
+            on:pointermove={onTagPointerMove}
+            on:pointerup={onTagPointerUp}
+            on:pointercancel={onTagPointerCancel}
+          >#{tag}</button>
+        {/each}
         <form on:submit|preventDefault={addTags}>
           <input bind:value={tagInput} placeholder="add tags" aria-label="Add tags" />
           <button type="submit" disabled={addingTags || !tagInput.trim()}>+</button>
