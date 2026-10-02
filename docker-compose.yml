@@ -1,6 +1,10 @@
 services:
   backend:
+    image: initialed85/memebrary-backend:local
     build: ./backend
+    # The Kubernetes pod gets writable volume permissions via fsGroup; local
+    # Docker volumes start root-owned, so the dev container runs as root.
+    user: "0:0"
     environment:
       PORT: "8080"
       DATA_DIR: /data
@@ -16,6 +20,7 @@ services:
           - memebrary-backend
 
   frontend:
+    image: initialed85/memebrary-frontend:local
     build: ./frontend
     depends_on:
       - backend
