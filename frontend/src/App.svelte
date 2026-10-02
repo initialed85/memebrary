@@ -954,6 +954,14 @@
       {/if}
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
       <div class="viewer-tags">
+        <button
+          type="button"
+          class="viewer-regenerate"
+          title="Regenerate description and AI tags"
+          aria-label="Regenerate description and AI tags"
+          disabled={viewerMeme.description_status === 'pending'}
+          on:click={() => retryDescription(viewerMeme)}
+        >↻</button>
         {#each viewerMeme.tags || [] as tag}
           <button
             type="button"
