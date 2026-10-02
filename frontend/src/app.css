@@ -424,8 +424,7 @@ small {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 155px;
-  max-height: 330px;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
   background: #f4f4f4;
 }
@@ -433,8 +432,7 @@ small {
 .image-frame img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 330px;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -741,15 +739,6 @@ footer {
   .loading-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-  }
-
-  .image-frame {
-    min-height: 100px;
-    max-height: 220px;
-  }
-
-  .image-frame img {
-    max-height: 220px;
   }
 
   .card-details {
