@@ -180,6 +180,26 @@
     if (event.pointerType === 'touch' || event.sourceCapabilities?.firesTouchEvents) event.preventDefault();
   }
 
+  function routeState() {
+    const path = window.location.pathname.split('/').filter(Boolean);
+    if (path[0] === 'meme' && path[1]) return { mode: 'modal', id: path[1] };
+    if (path[0] === 'story' && path[1]) return { mode: 'story', id: path[1] };
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('meme')) return { mode: 'modal', id: params.get('meme') };
+    if (params.get('at')) return { mode: 'story', id: params.get('at') };
+    return { mode: '', id: '' };
+  }
+
+  function setRoute(path, replace = false) {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
+  }
+
+  function showViewer(id, replace = false) {
+    viewerId = id;
+    document.body.style.overflow = 'hidden';
+    setRoute(`/meme/${id}`, replace);
+  }
+
   function openViewer(event, meme) {
     if (suppressClick) {
       suppressClick = false;
@@ -188,27 +208,48 @@
     }
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    viewerId = meme.id;
-    document.body.style.overflow = 'hidden';
+    showViewer(meme.id);
   }
 
-  function closeViewer() {
+  function closeViewer(updateRoute = true) {
     viewerId = '';
     document.body.style.overflow = '';
+    if (updateRoute && routeState().mode === 'modal') setRoute('/');
   }
 
   function viewerPrevious() {
-    if (viewerIndex > 0) viewerId = memes[viewerIndex - 1].id;
+    if (viewerIndex > 0) showViewer(memes[viewerIndex - 1].id, true);
   }
 
   async function viewerNext() {
     if (viewerIndex < memes.length - 1) {
-      viewerId = memes[viewerIndex + 1].id;
+      showViewer(memes[viewerIndex + 1].id, true);
       return;
     }
     if (!nextCursor || loadingMore) return;
     await load(false);
-    if (viewerIndex < memes.length - 1) viewerId = memes[viewerIndex + 1].id;
+    if (viewerIndex < memes.length - 1) showViewer(memes[viewerIndex + 1].id, true);
+  }
+
+  async function applyRoute() {
+    const route = routeState();
+    if (!route.id) {
+      if (viewerId) closeViewer(false);
+      return;
+    }
+    let attempts = 0;
+    while (!memes.some((item) => item.id === route.id) && nextCursor && attempts < 100) {
+      await load(false);
+      attempts += 1;
+    }
+    if (route.mode === 'modal' && memes.some((item) => item.id === route.id)) {
+      showViewer(route.id, true);
+    } else if (route.mode === 'story') {
+      requestAnimationFrame(() => {
+        const card = [...document.querySelectorAll('.meme-card')].find((item) => item.dataset.memeId === route.id);
+        card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
   }
 
   function onKeyDown(event) {
@@ -623,7 +664,8 @@
   }
 
   onMount(() => {
-    load(true);
+    load(true).then(applyRoute);
+    window.addEventListener('popstate', applyRoute);
     window.addEventListener('dragover', preventWindowDrop);
     window.addEventListener('drop', preventWindowDrop);
     window.addEventListener('paste', onPaste);
@@ -635,6 +677,7 @@
     if (sentinel) observer.observe(sentinel);
     return () => {
       observer?.disconnect();
+      window.removeEventListener('popstate', applyRoute);
       window.removeEventListener('dragover', preventWindowDrop);
       window.removeEventListener('drop', preventWindowDrop);
       window.removeEventListener('paste', onPaste);
