@@ -39,7 +39,7 @@ Then open <http://localhost:8081>.
 - `GET /api/memes?limit=36&cursor=...&tag=cats`
 - `POST /api/memes` multipart form: `file`, optional `tags`, optional `description`
 - `POST /api/memes/:id/describe` queues (or retries) AI metadata generation
-- `PATCH /api/memes/:id/order` moves a meme before `{ "before_id": "..." }` (omit it to move to the end)
+- `PATCH /api/memes/:id/order` moves a meme before/after `{ "before_id": "..." }` or `{ "after_id": "..." }` (omit both to move to the end)
 - `DELETE /api/memes/:id` removes a meme and its stored image
 - `GET /media/:id`
 

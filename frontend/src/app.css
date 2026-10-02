@@ -447,6 +447,10 @@ small {
   box-shadow: 0 0 0 2px rgba(107, 130, 168, 0.22), inset 0 3px 0 #6b82a8;
 }
 
+.meme-card.reorder-target-after {
+  box-shadow: 0 0 0 2px rgba(107, 130, 168, 0.22), inset 0 -3px 0 #6b82a8;
+}
+
 .meme-card:hover {
   border-color: #aaa;
   box-shadow: 0 3px 11px rgba(0, 0, 0, 0.055);

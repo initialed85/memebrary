@@ -13,6 +13,7 @@
   let selectedTag = '';
   let tagQuery = '';
   let sentinel;
+  let memeGrid;
   let fileInput;
   let observer;
   let pollTimer;
@@ -26,6 +27,7 @@
   let deleteActive = false;
   let draggedMemeId = '';
   let reorderTargetId = '';
+  let reorderTargetAfter = false;
   let deletingId = '';
   let uploading = false;
   let uploadMessage = '';
@@ -163,25 +165,78 @@
   function endMemeDrag() {
     draggedMemeId = '';
     reorderTargetId = '';
+    reorderTargetAfter = false;
     deleteActive = false;
   }
 
-  function onCardDragOver(event, meme) {
-    const types = Array.from(event.dataTransfer.types);
-    if (!types.includes('application/x-memebrary-id') || draggedMemeId === meme.id) return;
+  function isMemeDrag(event) {
+    return Array.from(event.dataTransfer.types).includes('application/x-memebrary-id');
+  }
+
+  function dropIsAfter(event, card) {
+    const rect = card.getBoundingClientRect();
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    return Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
+  }
+
+  function setReorderTarget(event, card, meme) {
+    if (!card || !meme || draggedMemeId === meme.id || !isMemeDrag(event)) return false;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     reorderTargetId = meme.id;
+    reorderTargetAfter = dropIsAfter(event, card);
+    return true;
+  }
+
+  function onCardDragOver(event, meme) {
+    setReorderTarget(event, event.currentTarget, meme);
   }
 
   function onCardDragLeave(event) {
-    if (!event.currentTarget.contains(event.relatedTarget)) reorderTargetId = '';
+    if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget)) {
+      reorderTargetId = '';
+      reorderTargetAfter = false;
+    }
   }
 
-  async function onCardDrop(event, target) {
+  function nearestCard(event) {
+    if (!memeGrid) return null;
+    const cards = [...memeGrid.querySelectorAll('.meme-card')];
+    let nearest = null;
+    let distance = Infinity;
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      const dx = event.clientX - (rect.left + rect.width / 2);
+      const dy = event.clientY - (rect.top + rect.height / 2);
+      const nextDistance = dx * dx + dy * dy;
+      if (nextDistance < distance) {
+        distance = nextDistance;
+        nearest = card;
+      }
+    }
+    return nearest;
+  }
+
+  function onTimelineDragOver(event) {
+    if (!isMemeDrag(event)) return;
+    const card = nearestCard(event);
+    const meme = memes.find((item) => item.id === card?.dataset.memeId);
+    setReorderTarget(event, card, meme);
+  }
+
+  function onTimelineDragLeave(event) {
+    if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget)) {
+      reorderTargetId = '';
+      reorderTargetAfter = false;
+    }
+  }
+
+  async function reorderMeme(event, target, after = reorderTargetAfter) {
     event.preventDefault();
     const sourceID = event.dataTransfer.getData('application/x-memebrary-id') || event.dataTransfer.getData('text/plain');
     reorderTargetId = '';
+    reorderTargetAfter = false;
     if (!sourceID || sourceID === target.id) return;
     const oldMemes = memes;
     const sourceIndex = memes.findIndex((item) => item.id === sourceID);
@@ -189,14 +244,14 @@
     if (sourceIndex < 0 || targetIndex < 0) return;
     const next = [...memes];
     const [source] = next.splice(sourceIndex, 1);
-    const insertAt = next.findIndex((item) => item.id === target.id);
-    next.splice(insertAt < 0 ? targetIndex : insertAt, 0, source);
+    const adjustedTargetIndex = next.findIndex((item) => item.id === target.id);
+    next.splice(Math.max(0, adjustedTargetIndex + (after ? 1 : 0)), 0, source);
     memes = next;
     try {
       const response = await fetch(`/api/memes/${sourceID}/order`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ before_id: target.id })
+        body: JSON.stringify(after ? { after_id: target.id } : { before_id: target.id })
       });
       if (!response.ok) {
         let body = null;
@@ -207,6 +262,16 @@
       memes = oldMemes;
       error = err.message;
     }
+  }
+
+  async function onCardDrop(event, target) {
+    await reorderMeme(event, target, dropIsAfter(event, event.currentTarget));
+  }
+
+  async function onTimelineDrop(event) {
+    if (!reorderTargetId) return;
+    const target = memes.find((item) => item.id === reorderTargetId);
+    if (target) await reorderMeme(event, target, reorderTargetAfter);
   }
 
   function onDeleteDragOver(event) {
@@ -424,19 +489,28 @@
       <p>{selectedTag ? 'Try another hashtag or clear the filter.' : 'Be the first to drop a meme into the archive.'}</p>
     </div>
   {:else}
-    <section class="meme-grid" aria-label="Meme timeline">
+    <section
+      bind:this={memeGrid}
+      class="meme-grid"
+      aria-label="Meme timeline"
+      on:dragover={onTimelineDragOver}
+      on:dragleave={onTimelineDragLeave}
+      on:drop={onTimelineDrop}
+    >
       {#each memes as meme (meme.id)}
         <article
           class:dragging={draggedMemeId === meme.id}
           class:reorder-target={reorderTargetId === meme.id}
+          class:reorder-target-after={reorderTargetId === meme.id && reorderTargetAfter}
           class="meme-card"
+          data-meme-id={meme.id}
           title="Drag to rearrange · drag to the red area to delete"
           draggable="true"
           on:dragstart={(event) => startMemeDrag(event, meme)}
           on:dragend={endMemeDrag}
-          on:dragover={(event) => onCardDragOver(event, meme)}
+          on:dragover|stopPropagation={(event) => onCardDragOver(event, meme)}
           on:dragleave={onCardDragLeave}
-          on:drop={(event) => onCardDrop(event, meme)}
+          on:drop|stopPropagation={(event) => onCardDrop(event, meme)}
         >
           <a class="image-frame" href={`/media/${meme.id}`} target="_blank" rel="noreferrer">
             <img loading="lazy" src={`/media/${meme.id}`} alt={meme.description || 'Meme image'} />
