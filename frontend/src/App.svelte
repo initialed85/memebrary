@@ -875,19 +875,18 @@
       <button class="viewer-close" aria-label="Close image viewer" on:click={closeViewer}>×</button>
       <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
       {#key viewerAnimationKey}
-      <figure class:viewer-slide-next={viewerDirection === 'next'} class:viewer-slide-prev={viewerDirection === 'prev'}>
+      <div class="viewer-image-scroll" class:viewer-slide-next={viewerDirection === 'next'} class:viewer-slide-prev={viewerDirection === 'prev'}>
         <img class="viewer-image" src={`/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
-        {#if viewerMeme.description}
-          <figcaption>{viewerMeme.description}</figcaption>
-        {:else if viewerMeme.description_status === 'pending'}
-          <figcaption class="viewer-pending">writing a description…</figcaption>
-        {:else if viewerMeme.description_status === 'failed'}
-          <figcaption class="viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></figcaption>
-        {/if}
-      </figure>
+      </div>
       {/key}
+      {#if viewerMeme.description}
+        <div class="viewer-description">{viewerMeme.description}</div>
+      {:else if viewerMeme.description_status === 'pending'}
+        <div class="viewer-description viewer-pending">writing a description…</div>
+      {:else if viewerMeme.description_status === 'failed'}
+        <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></div>
+      {/if}
       <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
-      <div class="viewer-meta">{viewerIndex + 1} / {total || memes.length}</div>
       <div class="viewer-tags">
         {#each viewerMeme.tags || [] as tag}<button type="button" on:click={() => chooseTag(tag)}>#{tag}</button>{/each}
         <form on:submit|preventDefault={addTags}>
