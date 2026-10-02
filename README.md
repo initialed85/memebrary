@@ -36,7 +36,7 @@ Then open <http://localhost:8081>.
 ## API
 
 - `GET /healthz`
-- `GET /api/memes?limit=36&cursor=...&tag=cats`
+- `GET /api/memes?limit=36&cursor=...&tag=cats` (hashtag filter is case-insensitive and contains-based)
 - `POST /api/memes` multipart form: `file`, optional `tags`, optional `description`
 - `POST /api/memes/:id/describe` queues (or retries) AI metadata generation
 - `PATCH /api/memes/:id/order` moves a meme before/after `{ "before_id": "..." }` or `{ "after_id": "..." }` (omit both to move to the end)
