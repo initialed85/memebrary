@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { listMemes } from './api';
 
   const PAGE_SIZE = 36;
   const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -85,11 +86,12 @@
     }
     if (!reset) loadingMore = true;
     error = '';
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-    if (nextCursor && !reset) params.set('cursor', nextCursor);
-    if (selectedTag) params.set('tag', selectedTag);
     try {
-      const result = await api(`${API_ROOT}/memes?${params}`);
+      const result = await listMemes({
+        limit: PAGE_SIZE,
+        offset: reset ? 0 : Number(nextCursor),
+        tag: selectedTag,
+      });
       memes = reset ? result.memes : [...memes, ...result.memes];
       nextCursor = result.next_cursor || '';
       total = result.total || 0;
@@ -104,10 +106,8 @@
   async function refreshLatest() {
     if (pollInFlight || loading || loadingMore || document.visibilityState === 'hidden') return;
     pollInFlight = true;
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-    if (selectedTag) params.set('tag', selectedTag);
     try {
-      const result = await api(`${API_ROOT}/memes?${params}`);
+      const result = await listMemes({ limit: PAGE_SIZE, offset: 0, tag: selectedTag });
       const remote = result.memes || [];
       const remoteIDs = new Set(remote.map((item) => item.id));
       // Keep already-loaded older pages while replacing the latest window. This

@@ -23,7 +23,7 @@ From `backend/`, start the PostgreSQL/Redis generation environment and keep it r
 cd frontend && npm run dev -- --host
 ```
 
-Open <http://localhost:5173>. The frontend uses the compatibility routes under `/api/custom`; generated djangolang CRUD routes remain available under `/api` for other clients.
+Open <http://localhost:5173>. The frontend uses the generated OpenAPI TypeScript client (`openapi-fetch`) for read-only meme/tag data under `/api`, following the Camry pattern. Compatibility routes under `/api/custom` remain for multipart uploads, ordering, AI actions, and media side effects.
 
 Set `AI_BASE_URL=` to disable vision metadata. `OPENAI_BASE_URL`, `AI_MODEL`, `OPENAI_MODEL`, and the corresponding API key aliases are also accepted.
 
