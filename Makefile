@@ -4,7 +4,7 @@ dev-backend:
 	cd backend && DATA_DIR=./data AI_BASE_URL=$${AI_BASE_URL:-http://192.168.137.111:8088/v1} go run ./cmd/memebrary
 
 dev-frontend:
-	cd frontend && npm run dev
+	cd frontend && npm run dev -- --host
 
 test:
 	cd backend && go test ./...
