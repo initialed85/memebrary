@@ -9,7 +9,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/gomodule/redigo v1.9.3
 	github.com/google/uuid v1.6.0
-	github.com/initialed85/djangolang v0.1.38
+	github.com/initialed85/djangolang v0.1.39
 	github.com/jackc/pgx/v5 v5.11.0
 	gopkg.in/yaml.v2 v2.4.0
 )

@@ -4,8 +4,6 @@ import type { components, paths } from "./api/api";
 const client = createClient<paths>({ baseUrl: "/" });
 
 export type GeneratedMeme = components["schemas"]["Meme"];
-export type GeneratedMemeTag = components["schemas"]["MemeTag"];
-
 type TimelineMeme = {
   id: string;
   original_name: string;
@@ -59,40 +57,11 @@ async function getMemeIDsForTagIDs(ids: string[]): Promise<string[]> {
   ];
 }
 
-async function getTagsByMemeIDs(ids: string[]): Promise<Map<string, string[]>> {
-  const tagsByMeme = new Map<string, string[]>();
-  if (ids.length === 0) return tagsByMeme;
-
-  const { data, error, response } = await client.GET("/api/meme-tags", {
-    params: {
-      query: {
-        meme_id__in: ids.join(","),
-        // meme-tag is the direct endpoint for this relationship. Asking the
-        // meme endpoint for depth=3 also loads meme-tag -> meme, duplicating
-        // the parent graph; tag__load gives us only the useful second hop.
-        tag__load: "",
-        limit: Math.max(100, ids.length * 16),
-      },
-    },
-  });
-  if (error) throw responseError(error, response);
-
-  for (const item of data?.objects || []) {
-    const memeID = item.meme_id;
-    const tag = item.tag_id_object?.name;
-    if (!memeID || !tag) continue;
-    const existing = tagsByMeme.get(memeID) || [];
-    existing.push(tag);
-    tagsByMeme.set(memeID, existing);
-  }
-  for (const tags of tagsByMeme.values()) tags.sort();
-  return tagsByMeme;
-}
-
-function toTimelineMeme(
-  item: GeneratedMeme,
-  tags: string[],
-): TimelineMeme | null {
+function toTimelineMeme(item: GeneratedMeme): TimelineMeme | null {
+  const tags = (item.referenced_by_meme_tag_meme_id_objects || [])
+    .map((link) => link.tag_id_object?.name)
+    .filter((name): name is string => Boolean(name))
+    .sort();
   if (!item.id) return null;
   return {
     id: item.id,
@@ -127,6 +96,7 @@ export async function listMemes({
       query: {
         limit,
         offset,
+        depth: 3,
         id__in:
           matchingMemeIDs.length > 0 ? matchingMemeIDs.join(",") : undefined,
         sort_order__desc: "",
@@ -136,12 +106,8 @@ export async function listMemes({
   if (error) throw responseError(error, response);
 
   const objects = data?.objects || [];
-  const ids = objects
-    .map((item) => item.id)
-    .filter((id): id is string => Boolean(id));
-  const tagsByMeme = await getTagsByMemeIDs(ids);
   const memes = objects
-    .map((item) => toTimelineMeme(item, tagsByMeme.get(item.id || "") || []))
+    .map((item) => toTimelineMeme(item))
     .filter((item): item is TimelineMeme => item !== null);
 
   // The generated API exposes offset pagination. Keep the existing frontend
