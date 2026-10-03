@@ -26,6 +26,11 @@
   let viewerTouchStartY = 0;
   let viewerAnimationKey = 0;
   let viewerDirection = '';
+  let viewerImageScroll;
+  let viewerScale = 1;
+  let viewerPinching = false;
+  let viewerPinchStartDistance = 0;
+  let viewerPinchStartScale = 1;
   $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
   $: viewerMeme = viewerIndex >= 0 ? memes[viewerIndex] : null;
 
@@ -215,8 +220,11 @@
   function showViewer(id, replace = false, direction = '') {
     viewerId = id;
     viewerDirection = direction;
+    viewerScale = 1;
+    viewerPinching = false;
     viewerAnimationKey += 1;
     document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => viewerImageScroll?.scrollTo(0, 0));
     setRoute(`/meme/${id}`, replace);
   }
 
@@ -242,14 +250,85 @@
     if (viewerIndex > 0) showViewer(memes[viewerIndex - 1].id, true, 'prev');
   }
 
+  function clampViewerScale(value) {
+    return Math.min(4, Math.max(1, value));
+  }
+
+  function touchDistance(touches) {
+    const [first, second] = touches;
+    return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+  }
+
+  function touchCenter(touches) {
+    const [first, second] = touches;
+    return {
+      x: (first.clientX + second.clientX) / 2,
+      y: (first.clientY + second.clientY) / 2,
+    };
+  }
+
+  function setViewerScale(value, clientX, clientY) {
+    const next = clampViewerScale(value);
+    const element = viewerImageScroll;
+    if (!element || next === viewerScale) {
+      viewerScale = next;
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    const localX = clientX === undefined ? rect.width / 2 : clientX - rect.left;
+    const localY = clientY === undefined ? rect.height / 2 : clientY - rect.top;
+    const contentX = (element.scrollLeft + localX) / viewerScale;
+    const contentY = (element.scrollTop + localY) / viewerScale;
+    viewerScale = next;
+    requestAnimationFrame(() => {
+      element.scrollLeft = Math.max(0, contentX * next - localX);
+      element.scrollTop = Math.max(0, contentY * next - localY);
+    });
+  }
+
+  function toggleViewerZoom() {
+    setViewerScale(viewerScale > 1 ? 1 : 2);
+  }
+
+  function onViewerWheel(event) {
+    // Preserve normal scrolling and browser zoom. Shift-wheel is the explicit
+    // desktop gesture for image zoom.
+    if (!event.shiftKey || event.ctrlKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setViewerScale(viewerScale * Math.pow(1.002, -event.deltaY), event.clientX, event.clientY);
+  }
+
   function onViewerTouchStart(event) {
+    if (event.touches.length === 2) {
+      viewerPinching = true;
+      viewerPinchStartDistance = touchDistance(event.touches);
+      viewerPinchStartScale = viewerScale;
+      event.preventDefault();
+      return;
+    }
     if (event.touches.length !== 1) return;
     viewerTouchStartX = event.touches[0].clientX;
     viewerTouchStartY = event.touches[0].clientY;
   }
 
+  function onViewerTouchMove(event) {
+    if (!viewerPinching || event.touches.length < 2) return;
+    event.preventDefault();
+    const center = touchCenter(event.touches);
+    setViewerScale(
+      viewerPinchStartScale * (touchDistance(event.touches) / viewerPinchStartDistance),
+      center.x,
+      center.y,
+    );
+  }
+
   function onViewerTouchEnd(event) {
-    if (!viewerMeme || event.changedTouches.length !== 1) return;
+    if (viewerPinching) {
+      if (event.touches.length < 2) viewerPinching = false;
+      return;
+    }
+    if (!viewerMeme || viewerScale > 1.01 || event.changedTouches.length !== 1) return;
     const touch = event.changedTouches[0];
     const dx = touch.clientX - viewerTouchStartX;
     const dy = touch.clientY - viewerTouchStartY;
@@ -945,12 +1024,35 @@
 
 {#if viewerMeme}
   <div class="viewer-backdrop" role="presentation" on:click={closeViewer}>
-    <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation on:touchstart={onViewerTouchStart} on:touchend={onViewerTouchEnd}>
+    <dialog open class="viewer" aria-label="Meme viewer" on:click|stopPropagation>
       <button class="viewer-close" aria-label="Close image viewer" on:click={closeViewer}>×</button>
+      <button class="viewer-fit-toggle" aria-label={viewerScale > 1 ? 'Fit image to modal' : 'Zoom image'} title={viewerScale > 1 ? 'Fit image to modal' : 'Zoom image'} on:click={toggleViewerZoom}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+          <path d="M3 3l6 6M21 3l-6 6M3 21l6-6M21 21l-6-6" />
+        </svg>
+      </button>
       <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
       {#key viewerAnimationKey}
-      <div class="viewer-image-scroll" class:viewer-slide-next={viewerDirection === 'next'} class:viewer-slide-prev={viewerDirection === 'prev'}>
-        <img class="viewer-image" src={`${API_ROOT}/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
+      <div
+        bind:this={viewerImageScroll}
+        class="viewer-image-scroll"
+        role="application"
+        aria-label="Zoomable image"
+        class:viewer-slide-next={viewerDirection === 'next'}
+        class:viewer-slide-prev={viewerDirection === 'prev'}
+        on:wheel={onViewerWheel}
+        on:touchstart={onViewerTouchStart}
+        on:touchmove={onViewerTouchMove}
+        on:touchend={onViewerTouchEnd}
+      >
+        <img
+          class="viewer-image"
+          style={`width: ${viewerScale * 100}%; max-width: ${viewerScale > 1 ? 'none' : '100%'};`}
+          src={`${API_ROOT}/media/${viewerMeme.id}`}
+          alt={viewerMeme.description || 'Meme image'}
+          draggable="false"
+        />
       </div>
       {/key}
       {#if viewerMeme.description_status === 'pending'}
