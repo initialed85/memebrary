@@ -300,6 +300,7 @@ func (a *API) memeAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meme.DescriptionStatus = "pending"
+	meme.ForceRegenerate = true
 	a.generator.Enqueue(meme)
 	writeJSON(w, http.StatusAccepted, meme)
 }

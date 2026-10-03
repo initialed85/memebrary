@@ -33,6 +33,10 @@ type Meme struct {
 	CreatedAt            string   `json:"created_at"`
 	SortOrder            int64    `json:"-"`
 	MetadataVersion      int      `json:"-"`
+	// ForceRegenerate is set only for an explicit user retry. It lets the
+	// vision worker ignore existing metadata while retaining it for failure
+	// recovery until a replacement result is successfully persisted.
+	ForceRegenerate bool `json:"-"`
 }
 
 type ListResult struct {

@@ -953,10 +953,10 @@
         <img class="viewer-image" src={`${API_ROOT}/media/${viewerMeme.id}`} alt={viewerMeme.description || 'Meme image'} draggable="false" />
       </div>
       {/key}
-      {#if viewerMeme.description}
-        <div class="viewer-description">{viewerMeme.description}</div>
-      {:else if viewerMeme.description_status === 'pending'}
+      {#if viewerMeme.description_status === 'pending'}
         <div class="viewer-description viewer-pending">writing a description…</div>
+      {:else if viewerMeme.description}
+        <div class="viewer-description">{viewerMeme.description}</div>
       {:else if viewerMeme.description_status === 'failed'}
         <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></div>
       {/if}
