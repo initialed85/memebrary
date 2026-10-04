@@ -28,7 +28,7 @@
   let viewerDirection = '';
   let viewerImageScroll;
   let viewerScale = 1;
-  let viewerFit = false;
+  let viewerFit = true;
   let viewerPinching = false;
   let viewerPinchStartDistance = 0;
   let viewerPinchStartScale = 1;
@@ -222,7 +222,7 @@
     viewerId = id;
     viewerDirection = direction;
     viewerScale = 1;
-    viewerFit = false;
+    viewerFit = true;
     viewerPinching = false;
     viewerAnimationKey += 1;
     document.body.style.overflow = 'hidden';

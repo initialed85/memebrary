@@ -25,6 +25,8 @@
 }
 
 .viewer-image-scroll {
+  position: relative;
+  z-index: 0;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -112,6 +114,7 @@
 }
 
 .viewer-fit-toggle {
+  pointer-events: auto;
   position: absolute;
   top: 7px;
   left: 7px;
@@ -146,6 +149,7 @@
 }
 
 .viewer-close {
+  pointer-events: auto;
   position: absolute;
   top: 4px;
   right: 5px;
@@ -165,6 +169,7 @@
 }
 
 .viewer-arrow {
+  pointer-events: auto;
   position: absolute;
   top: 18px;
   bottom: 38px;
