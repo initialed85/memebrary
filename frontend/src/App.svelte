@@ -12,6 +12,7 @@
   let loading = true;
   let loadingMore = false;
   let error = '';
+  let toastMessage = '';
   let selectedTag = '';
   let tagQuery = '';
   let sentinel;
@@ -24,6 +25,7 @@
   let viewerId = '';
   let viewerTouchStartX = 0;
   let viewerTouchStartY = 0;
+  let viewerTouchActive = false;
   let viewerAnimationKey = 0;
   let viewerDirection = '';
   let viewerImageScroll;
@@ -97,6 +99,7 @@
         limit: PAGE_SIZE,
         offset: reset ? 0 : Number(nextCursor),
         tag: selectedTag,
+        cache_bust: Date.now(),
       });
       memes = reset ? result.memes : [...memes, ...result.memes];
       nextCursor = result.next_cursor || '';
@@ -116,14 +119,18 @@
       const result = await listMemes({ limit: PAGE_SIZE, offset: 0, tag: selectedTag });
       const remote = result.memes || [];
       const remoteIDs = new Set(remote.map((item) => item.id));
-      // Keep already-loaded older pages while replacing the latest window. This
-      // lets another browser's upload/AI result appear without jumping scroll.
-      memes = [...remote, ...memes.filter((item) => !remoteIDs.has(item.id))];
+      // Merge remote items into existing array to keep deeper pages fresh without jumping scroll.
+      memes = memes.map((item) => {
+        const idx = remote.findIndex(r => r.id === item.id);
+        return idx !== -1 ? remote[idx] : item;
+      });
+      // If remote had more items than we have, append them.
+      const missing = remote.filter(r => !remoteIDs.has(r.id));
+      if (missing.length) memes = [...memes, ...missing];
       total = result.total || 0;
       if (!nextCursor || memes.length <= remote.length) nextCursor = result.next_cursor || '';
     } catch (err) {
-      // A transient poll failure should not disrupt a timeline that is already visible.
-      if (memes.length === 0) error = err.message;
+      // Ignore transient poll errors so the timeline keeps showing
     } finally {
       pollInFlight = false;
     }
@@ -224,6 +231,7 @@
     viewerScale = 1;
     viewerFit = true;
     viewerPinching = false;
+    viewerTouchActive = false;
     viewerAnimationKey += 1;
     document.body.style.overflow = 'hidden';
     requestAnimationFrame(() => viewerImageScroll?.scrollTo(0, 0));
@@ -302,12 +310,14 @@
   function onViewerTouchStart(event) {
     if (event.touches.length === 2) {
       viewerPinching = true;
+      viewerTouchActive = false;
       viewerPinchStartDistance = touchDistance(event.touches);
       viewerPinchStartScale = viewerScale;
       event.preventDefault();
       return;
     }
     if (event.touches.length !== 1) return;
+    viewerTouchActive = true;
     viewerTouchStartX = event.touches[0].clientX;
     viewerTouchStartY = event.touches[0].clientY;
   }
@@ -327,10 +337,17 @@
 
   function onViewerTouchEnd(event) {
     if (viewerPinching) {
-      if (event.touches.length < 2) viewerPinching = false;
+      if (event.touches.length < 2) {
+        viewerPinching = false;
+        viewerTouchActive = false;
+      }
       return;
     }
-    if (!viewerMeme || viewerScale > 1.01 || event.changedTouches.length !== 1) return;
+    if (!viewerTouchActive || !viewerMeme || viewerScale > 1.01 || event.changedTouches.length !== 1) {
+      viewerTouchActive = false;
+      return;
+    }
+    viewerTouchActive = false;
     const touch = event.changedTouches[0];
     const dx = touch.clientX - viewerTouchStartX;
     const dy = touch.clientY - viewerTouchStartY;
@@ -765,6 +782,10 @@
         total += 1;
       }
       resetUpload();
+      if (!uploadMessage) {
+        toastMessage = uploadFile.name;
+        window.setTimeout(() => { toastMessage = ''; }, 5000);
+      }
     } catch (err) {
       uploadMessage = err.message;
     } finally {
@@ -845,6 +866,7 @@
   }
 
   async function retryDescription(meme) {
+    if (!meme) return;
     try {
       const pending = await api(`${API_ROOT}/memes/${meme.id}/describe`, { method: 'POST' });
       memes = memes.map((item) => (item.id === meme.id ? pending : item));
@@ -947,6 +969,12 @@
     </div>
 
     {#if uploadFile}
+      {#if toastMessage}
+        <div class="notice success" role="status" aria-label="Upload confirmation">
+          <strong>uploaded</strong> {toastMessage}
+          <button class="link-button" on:click={() => toastMessage = ''}>×</button>
+        </div>
+      {/if}
       <section class="upload-editor" aria-label="New meme details">
         <div class="editor-preview"><img src={uploadPreview} alt="Selected meme preview" /></div>
         <div class="editor-fields">
@@ -1034,62 +1062,66 @@
           <path d="M3 3l6 6M21 3l-6 6M3 21l6-6M21 21l-6-6" />
         </svg>
       </button>
-      <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
       {#key viewerAnimationKey}
-      <div
-        bind:this={viewerImageScroll}
-        class="viewer-image-scroll"
-        class:viewer-fit={viewerFit}
-        role="application"
-        aria-label="Zoomable image"
-        class:viewer-slide-next={viewerDirection === 'next'}
-        class:viewer-slide-prev={viewerDirection === 'prev'}
-        on:wheel={onViewerWheel}
-        on:touchstart={onViewerTouchStart}
-        on:touchmove={onViewerTouchMove}
-        on:touchend={onViewerTouchEnd}
-      >
-        <img
-          class="viewer-image"
-          style={viewerFit ? '' : `width: ${viewerScale * 100}%; max-width: ${viewerScale > 1 ? 'none' : '100%'};`}
-          src={`${API_ROOT}/media/${viewerMeme.id}`}
-          alt={viewerMeme.description || 'Meme image'}
-          draggable="false"
-        />
+      <div class="viewer-image-stage">
+        <div
+          bind:this={viewerImageScroll}
+          class="viewer-image-scroll"
+          class:viewer-fit={viewerFit}
+          role="application"
+          aria-label="Zoomable image"
+          class:viewer-slide-next={viewerDirection === 'next'}
+          class:viewer-slide-prev={viewerDirection === 'prev'}
+          on:wheel={onViewerWheel}
+          on:touchstart={onViewerTouchStart}
+          on:touchmove={onViewerTouchMove}
+          on:touchend={onViewerTouchEnd}
+        >
+          <img
+            class="viewer-image"
+            style={viewerFit ? '' : `width: ${viewerScale * 100}%; max-width: ${viewerScale > 1 ? 'none' : '100%'};`}
+            src={`${API_ROOT}/media/${viewerMeme.id}`}
+            alt={viewerMeme.description || 'Meme image'}
+            draggable="false"
+          />
+        </div>
+        <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
+        <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
       </div>
       {/key}
-      {#if viewerMeme.description_status === 'pending'}
-        <div class="viewer-description viewer-pending">writing a description…</div>
-      {:else if viewerMeme.description}
-        <div class="viewer-description">{viewerMeme.description}</div>
-      {:else if viewerMeme.description_status === 'failed'}
-        <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></div>
-      {/if}
-      <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
-      <div class="viewer-tags">
-        <button
-          type="button"
-          class="viewer-regenerate"
-          title="Regenerate description and AI tags"
-          aria-label="Regenerate description and AI tags"
-          disabled={viewerMeme.description_status === 'pending'}
-          on:click={() => retryDescription(viewerMeme)}
-        >↻</button>
-        {#each viewerMeme.tags || [] as tag}
+      <div class="viewer-details">
+        {#if viewerMeme.description_status === 'pending'}
+          <div class="viewer-description viewer-pending">writing a description…</div>
+        {:else if viewerMeme.description}
+          <div class="viewer-description">{viewerMeme.description}</div>
+        {:else if viewerMeme.description_status === 'failed'}
+          <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></div>
+        {/if}
+        <div class="viewer-tags">
           <button
             type="button"
-            class:tag-delete-ready={tagDeleteActive && tagDeleteMemeId === viewerMeme.id && tagDeleteName === tag && tagDeleteOver}
-            on:click={() => chooseTag(tag)}
-            on:pointerdown={(event) => onTagPointerDown(event, viewerMeme, tag)}
-            on:pointermove={onTagPointerMove}
-            on:pointerup={onTagPointerUp}
-            on:pointercancel={onTagPointerCancel}
-          >#{tag}</button>
-        {/each}
-        <form on:submit|preventDefault={addTags}>
-          <input bind:value={tagInput} placeholder="add tags" aria-label="Add tags" />
-          <button type="submit" disabled={addingTags || !tagInput.trim()}>+</button>
-        </form>
+            class="viewer-regenerate"
+            title="Regenerate description and AI tags"
+            aria-label="Regenerate description and AI tags"
+            disabled={viewerMeme.description_status === 'pending'}
+            on:click={() => retryDescription(viewerMeme)}
+          >↻</button>
+          {#each viewerMeme.tags || [] as tag}
+            <button
+              type="button"
+              class:tag-delete-ready={tagDeleteActive && tagDeleteMemeId === viewerMeme.id && tagDeleteName === tag && tagDeleteOver}
+              on:click={() => chooseTag(tag)}
+              on:pointerdown={(event) => onTagPointerDown(event, viewerMeme, tag)}
+              on:pointermove={onTagPointerMove}
+              on:pointerup={onTagPointerUp}
+              on:pointercancel={onTagPointerCancel}
+            >#{tag}</button>
+          {/each}
+          <form on:submit|preventDefault={addTags}>
+            <input bind:value={tagInput} placeholder="add tags" aria-label="Add tags" />
+            <button type="submit" disabled={addingTags || !tagInput.trim()}>+</button>
+          </form>
+        </div>
       </div>
     </dialog>
   </div>
