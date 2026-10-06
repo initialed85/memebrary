@@ -1,60 +1,41 @@
 # meme/brary
 
-A small, anonymous image library with a dense timeline, drag-and-drop uploads, hashtags, and optional image descriptions generated through an OpenAI-compatible vision endpoint.
+A small anonymous image library with a dense Svelte timeline, drag-and-drop uploads, hashtags, and optional vision-generated metadata.
 
-## Local development
+## Development
 
-Prerequisites: Go 1.26+, Node.js 22+, and npm.
+Prerequisites: Go 1.27+, Docker Compose, Node.js 22+, Java, and `openapi-generator-cli`.
 
-Run the API and web app in separate terminals:
-
-```sh
-make dev-backend
-make dev-frontend
-```
-
-Open <http://localhost:5173>. Vite proxies `/api`, `/media`, and `/healthz` to the Go service on port 8080. Uploaded images and the SQLite database live under `backend/data/`.
-
-The backend uses the local llama-server by default:
+From `backend/`, start the PostgreSQL/Redis generation environment and keep it running:
 
 ```sh
-AI_BASE_URL=http://192.168.137.111:8088/v1 \
-AI_MODEL='unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q6_K_XL' \
-make dev-backend
+./run-env.sh up -d
+./build.sh
 ```
 
-Set `AI_BASE_URL=` to disable generated descriptions. `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `OPENAI_API_KEY` are accepted aliases. The AI worker sends the image as a base64 `image_url` in `/chat/completions`, so the endpoint must support OpenAI-compatible vision messages. An unavailable AI service never prevents the original image from being saved; the card shows a retry action.
-
-Or run both pieces through Docker Compose:
+`build.sh` introspects PostgreSQL and regenerates `backend/pkg/api`, dumps the OpenAPI schema, generates `frontend/src/api/api.d.ts`, formats the frontend, and regenerates the Go client. It expects `post-migrate` to have exited successfully. Run the API and frontend in separate terminals:
 
 ```sh
-docker compose up --build
+# backend/
+./run-for-dev.sh
+
+# repository root/
+cd frontend && npm run dev -- --host
 ```
 
-Then open <http://localhost:8081>.
+Open <http://localhost:5173>. The frontend uses the generated OpenAPI TypeScript client (`openapi-fetch`) for read-only meme/tag data under `/api`, following the Camry pattern. Compatibility routes under `/api/custom` remain for multipart uploads, ordering, AI actions, and media side effects.
 
-## API
+Set `AI_BASE_URL=` to disable vision metadata. `OPENAI_BASE_URL`, `AI_MODEL`, `OPENAI_MODEL`, and the corresponding API key aliases are also accepted.
 
-- `GET /healthz`
-- `GET /api/memes?limit=36&cursor=...&tag=cats` (hashtag filter is case-insensitive and contains-based)
-- `POST /api/memes` multipart form: `file`, optional `tags`, optional `description`
-- `POST /api/memes/:id/describe` queues (or retries) AI metadata generation
-- `PATCH /api/memes/:id/order` moves a meme before/after `{ "before_id": "..." }` or `{ "after_id": "..." }` (omit both to move to the end)
-- `POST /api/memes/:id/tags` adds tags with `{ "tags": ["#example"] }`
-- `DELETE /api/memes/:id` removes a meme and its stored image
-- `GET /media/:id`
+## Deployment
 
-Images are validated as JPEG, PNG, GIF, or WebP and stored under a UUID filename. SQLite and media are kept together under the configured data directory.
-
-## Container images
-
-Build and publish the independently deployable images from the repository root (after `docker login`):
+`backend/build-tag-and-push.sh` builds and pushes the independently deployable images:
 
 ```sh
-docker build --platform linux/amd64 -t initialed85/memebrary-backend:latest ./backend
-docker build --platform linux/amd64 -t initialed85/memebrary-frontend:latest ./frontend
-docker push initialed85/memebrary-backend:latest
-docker push initialed85/memebrary-frontend:latest
+cd backend
+./build-tag-and-push.sh
 ```
 
-Then apply the manifests in `~/Projects/Home/home-ops/applications/memebrary` as described in that directory's README. The frontend nginx config proxies `/api` and `/media` to the Kubernetes `memebrary-backend` service. Change that service name in `frontend/nginx.conf` if the deployment naming changes.
+The script publishes `initialed85/memebrary-backend:latest` and `initialed85/memebrary-frontend:latest` (override with `BACKEND_IMAGE` and `FRONTEND_IMAGE`). The API image runs PostgreSQL migrations before starting djangolang and stores media under `MEDIA_DIR`.
+
+The manifests for the dev deployment live in `~/Projects/Home/home-ops/applications/memebrary-dev`. Apply them with `kubectl --context home-dev` as described there, then verify both rollouts and the public health endpoint.

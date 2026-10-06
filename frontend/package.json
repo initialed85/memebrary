@@ -7,14 +7,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./jsconfig.json"
+    "check": "svelte-check --tsconfig ./jsconfig.json",
+    "openapi-typescript": "mkdir -p ./src/api && openapi-typescript ../backend/schema/openapi.json -o ./src/api/api.d.ts",
+    "prettier": "prettier -w src"
   },
   "dependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "openapi-fetch": "^0.10.6",
     "svelte": "^5.0.0",
     "vite": "^6.0.0"
   },
   "devDependencies": {
+    "openapi-typescript": "^7.3.0",
+    "prettier": "^3.3.3",
     "svelte-check": "^4.0.0"
   }
 }

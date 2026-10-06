@@ -161,7 +161,10 @@ button:disabled {
   border: 1px dashed #c9c9c9;
   border-radius: 5px;
   background: #fcfcfc;
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .dropzone:hover,
@@ -182,7 +185,11 @@ button:disabled {
   border-radius: 5px;
   background: #fffafa;
   color: #a98282;
-  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .delete-zone strong {
@@ -401,7 +408,11 @@ small {
   border-radius: 4px;
   background: #fff;
   cursor: grab;
-  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease, transform 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 
 .meme-card.dragging {
@@ -412,11 +423,15 @@ small {
 
 .meme-card.reorder-target {
   border-color: #6b82a8;
-  box-shadow: 0 0 0 2px rgba(107, 130, 168, 0.22), inset 0 3px 0 #6b82a8;
+  box-shadow:
+    0 0 0 2px rgba(107, 130, 168, 0.22),
+    inset 0 3px 0 #6b82a8;
 }
 
 .meme-card.reorder-target-after {
-  box-shadow: 0 0 0 2px rgba(107, 130, 168, 0.22), inset 0 -3px 0 #6b82a8;
+  box-shadow:
+    0 0 0 2px rgba(107, 130, 168, 0.22),
+    inset 0 -3px 0 #6b82a8;
 }
 
 .meme-card:hover {
@@ -607,12 +622,18 @@ footer {
 }
 
 @keyframes shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 650px) {
@@ -702,7 +723,7 @@ footer {
   }
 
   .delete-zone strong::after {
-    content: 'delete';
+    content: "delete";
     font-size: 9px;
   }
 

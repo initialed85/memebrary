@@ -6,9 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/media': 'http://localhost:8080',
-      '/healthz': 'http://localhost:8080'
+      '/api': 'http://localhost:7070',
+      '/media': 'http://localhost:7070',
+      '/healthz': {
+        target: 'http://localhost:7070',
+        rewrite: () => '/api/healthz'
+      }
     }
   },
   build: {

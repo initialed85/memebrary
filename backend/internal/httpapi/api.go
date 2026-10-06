@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,8 +20,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/initialed85/memebrary-backend/internal/describe"
-	"github.com/initialed85/memebrary-backend/internal/store"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/initialed85/membrary/backend/internal/describe"
+	"github.com/initialed85/membrary/backend/internal/store"
 )
 
 type loggingResponseWriter struct {
@@ -59,7 +59,26 @@ type API struct {
 }
 
 func New(dataStore *store.Store, generator *describe.Generator, mediaDir string, maxUpload int64, corsOrigin string, logger *slog.Logger) *API {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &API{store: dataStore, generator: generator, mediaDir: mediaDir, maxUpload: maxUpload, corsOrigin: corsOrigin, logger: logger}
+}
+
+// Routes mounts the compatibility API beneath djangolang's /api/custom route.
+// The path adapter lets the implementation retain the original /api and /media
+// route layout while keeping generated CRUD endpoints available alongside it.
+func (a *API) Routes(r chi.Router) {
+	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		suffix := strings.TrimPrefix(req.URL.Path, "/api/custom")
+		forwarded := req.Clone(req.Context())
+		if strings.HasPrefix(suffix, "/media/") {
+			forwarded.URL.Path = suffix
+		} else {
+			forwarded.URL.Path = "/api" + suffix
+		}
+		a.Handler().ServeHTTP(w, forwarded)
+	}))
 }
 
 func (a *API) Handler() http.Handler {
@@ -89,8 +108,6 @@ func (a *API) Handler() http.Handler {
 		}()
 
 		switch {
-		case r.URL.Path == "/healthz":
-			a.health(w, r)
 		case r.URL.Path == "/api/memes" || r.URL.Path == "/api/memes/":
 			a.memes(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/memes/"):
@@ -101,10 +118,6 @@ func (a *API) Handler() http.Handler {
 			notFound(w)
 		}
 	})
-}
-
-func (a *API) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *API) memes(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +300,7 @@ func (a *API) memeAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meme.DescriptionStatus = "pending"
+	meme.ForceRegenerate = true
 	a.generator.Enqueue(meme)
 	writeJSON(w, http.StatusAccepted, meme)
 }
@@ -407,7 +421,7 @@ func (a *API) media(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/media/")
-	if strings.Contains(id, "/") || len(id) != 32 {
+	if strings.Contains(id, "/") || strings.TrimSpace(id) == "" {
 		notFound(w)
 		return
 	}
@@ -487,11 +501,7 @@ func parseTags(input string) []string {
 }
 
 func randomID() string {
-	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		return strings.ReplaceAll(time.Now().UTC().Format("20060102150405.000000000"), ".", "")[:16]
-	}
-	return hex.EncodeToString(bytes[:])
+	return uuid.NewString()
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

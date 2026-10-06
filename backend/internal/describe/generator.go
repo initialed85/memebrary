@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/initialed85/memebrary-backend/internal/store"
+	"github.com/initialed85/membrary/backend/internal/store"
 )
 
 type Generator struct {
@@ -116,7 +116,13 @@ func (g *Generator) generate(ctx context.Context, meme store.Meme) {
 		g.markFailed(meme)
 		return
 	}
-	result, err := g.request(ctx, meme.MimeType, imageBytes, meme.Description, meme.Tags)
+	existingDescription := meme.Description
+	existingTags := meme.Tags
+	if meme.ForceRegenerate {
+		existingDescription = ""
+		existingTags = nil
+	}
+	result, err := g.request(ctx, meme.MimeType, imageBytes, existingDescription, existingTags)
 	if err != nil {
 		g.logger.Error("vision request failed", "id", meme.ID, "error", err, "duration", time.Since(started))
 		g.markFailed(meme)
@@ -125,18 +131,18 @@ func (g *Generator) generate(ctx context.Context, meme store.Meme) {
 
 	description := strings.TrimSpace(meme.Description)
 	generatedDescription := false
-	if description == "" {
+	if meme.ForceRegenerate || description == "" {
 		description = cleanText(result.Description)
 		generatedDescription = description != ""
 	}
 	generatedTags := cleanTextTags(result.TextTags)
-	if len(meme.Tags) == 0 {
+	if meme.ForceRegenerate || len(meme.Tags) == 0 {
 		generatedTags = append(cleanTags(result.Hashtags, 8), generatedTags...)
 	}
 	// A missing description is still a failed generation. Any useful tags are
 	// kept, so a retry can focus on the remaining missing field.
 	status := "ready"
-	if strings.TrimSpace(meme.Description) == "" && description == "" {
+	if (meme.ForceRegenerate || strings.TrimSpace(meme.Description) == "") && description == "" {
 		status = "failed"
 	}
 	if err := g.store.UpdateGeneratedContent(context.Background(), meme.ID, description, status, generatedDescription, generatedTags); err != nil {

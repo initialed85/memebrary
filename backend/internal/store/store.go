@@ -8,13 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
+	"github.com/initialed85/djangolang/pkg/helpers"
+	"github.com/initialed85/djangolang/pkg/query"
+	generated "github.com/initialed85/membrary/backend/pkg/api"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Meme struct {
@@ -30,6 +33,10 @@ type Meme struct {
 	CreatedAt            string   `json:"created_at"`
 	SortOrder            int64    `json:"-"`
 	MetadataVersion      int      `json:"-"`
+	// ForceRegenerate is set only for an explicit user retry. It lets the
+	// vision worker ignore existing metadata while retaining it for failure
+	// recovery until a replacement result is successfully persisted.
+	ForceRegenerate bool `json:"-"`
 }
 
 type ListResult struct {
@@ -39,96 +46,650 @@ type ListResult struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func Open(ctx context.Context, path string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)")
+func New(db *pgxpool.Pool) *Store { return &Store{db: db} }
+
+func (s *Store) Get(ctx context.Context, id string) (Meme, error) {
+	parsed, err := uuid.Parse(id)
 	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
+		return Meme{}, ErrNotFound
 	}
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("ping database: %w", err)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Meme{}, fmt.Errorf("begin get meme: %w", err)
 	}
-	store := &Store{db: db}
-	if err := store.migrate(ctx); err != nil {
-		db.Close()
+	defer tx.Rollback(ctx)
+	meme, err := s.getTx(ctx, tx, parsed)
+	if err != nil {
+		return Meme{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Meme{}, fmt.Errorf("commit get meme: %w", err)
+	}
+	return meme, nil
+}
+
+func (s *Store) getTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Meme, error) {
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, fmt.Sprintf("%s = $1", generated.MemeTablePrimaryKeyColumn), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Meme{}, ErrNotFound
+	}
+	if err != nil {
+		return Meme{}, fmt.Errorf("get meme: %w", err)
+	}
+	meme, err := s.fromGenerated(ctx, tx, object)
+	if err != nil {
+		return Meme{}, err
+	}
+	return meme, nil
+}
+
+func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.Meme) (Meme, error) {
+	tags, err := s.tagsForMeme(ctx, tx, object.ID)
+	if err != nil {
+		return Meme{}, err
+	}
+	return Meme{
+		ID:                   object.ID.String(),
+		Filename:             object.Filename,
+		OriginalName:         object.OriginalName,
+		MimeType:             object.MimeType,
+		Size:                 object.Size,
+		Description:          cleanStoredDescription(object.Description),
+		DescriptionStatus:    object.DescriptionStatus,
+		DescriptionGenerated: object.DescriptionGenerated != 0,
+		Tags:                 tags,
+		CreatedAt:            object.CreatedAt.UTC().Format(time.RFC3339Nano),
+		SortOrder:            object.SortOrder,
+		MetadataVersion:      int(object.MetadataVersion),
+	}, nil
+}
+
+func (s *Store) tagsForMeme(ctx context.Context, tx pgx.Tx, memeID uuid.UUID) ([]string, error) {
+	objects, _, _, _, _, err := generated.SelectMemeTags(
+		query.WithLoad(ctx, "tag"),
+		tx,
+		fmt.Sprintf("%s = $1", generated.MemeTagTableMemeIDColumn),
+		nil,
+		nil,
+		nil,
+		memeID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list meme tags: %w", err)
+	}
+
+	result := make([]string, 0, len(objects))
+	for _, object := range objects {
+		if object.TagIDObject == nil {
+			object, err = reloadMemeTagWithTag(ctx, tx, object)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if object.TagIDObject != nil {
+			result = append(result, object.TagIDObject.Name)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func reloadMemeTagWithTag(ctx context.Context, tx pgx.Tx, object *generated.MemeTag) (*generated.MemeTag, error) {
+	if err := object.Reload(query.WithLoad(ctx, "tag"), tx); err != nil {
+		return nil, fmt.Errorf("load meme tag: %w", err)
+	}
+	return object, nil
+}
+
+func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListResult, error) {
+	if limit < 1 || limit > 100 {
+		limit = 40
+	}
+	cursorOrder, cursorTime, cursorID, err := decodeCursor(cursor)
+	if err != nil {
+		return ListResult{}, err
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("begin list memes: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	whereParts := make([]string, 0, 3)
+	values := make([]any, 0, 8)
+	if cursor != "" {
+		parsedID, parseErr := uuid.Parse(cursorID)
+		if parseErr != nil {
+			return ListResult{}, fmt.Errorf("invalid cursor")
+		}
+		whereParts = append(whereParts, "(sort_order < $1 OR (sort_order = $2 AND (created_at < $3 OR (created_at = $4 AND id < $5))))")
+		values = append(values, cursorOrder, cursorOrder, cursorTime, cursorTime, parsedID)
+	}
+
+	if strings.TrimSpace(tag) != "" {
+		matchingIDs, matchErr := matchingMemeIDs(ctx, tx, tag)
+		if matchErr != nil {
+			return ListResult{}, matchErr
+		}
+		if len(matchingIDs) == 0 {
+			return ListResult{Memes: []Meme{}, Total: 0}, tx.Commit(ctx)
+		}
+		placeholders := make([]string, 0, len(matchingIDs))
+		for _, id := range matchingIDs {
+			placeholders = append(placeholders, fmt.Sprintf("id = $%d", len(values)+1))
+			values = append(values, id)
+		}
+		whereParts = append(whereParts, "("+strings.Join(placeholders, " OR ")+")")
+	}
+
+	where := strings.Join(whereParts, " AND ")
+	orderBy := "sort_order DESC, created_at DESC, id DESC"
+	pageLimit := limit + 1
+	objects, _, totalCount, _, _, err := generated.SelectMemes(
+		ctx,
+		tx,
+		where,
+		&orderBy,
+		&pageLimit,
+		helperInt(0),
+		values...,
+	)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("list memes: %w", err)
+	}
+
+	memes := make([]Meme, 0, len(objects))
+	for _, object := range objects {
+		meme, convertErr := s.fromGenerated(ctx, tx, object)
+		if convertErr != nil {
+			return ListResult{}, convertErr
+		}
+		memes = append(memes, meme)
+	}
+
+	next := ""
+	if len(memes) > limit {
+		last := memes[limit-1]
+		memes = memes[:limit]
+		next = encodeCursor(last.SortOrder, last.CreatedAt, last.ID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ListResult{}, fmt.Errorf("commit list memes: %w", err)
+	}
+	// djangolang intentionally uses PostgreSQL's planner row estimate for
+	// totalCount. It can be stale (including on an empty table), so preserve
+	// the compatibility API's exact empty result while retaining the estimate
+	// for populated pages.
+	if len(objects) == 0 {
+		totalCount = 0
+	} else if totalCount < int64(len(objects)) {
+		// A stale planner estimate must never claim fewer records than the
+		// rows returned in this page.
+		totalCount = int64(len(objects))
+	}
+	return ListResult{Memes: memes, NextCursor: next, Total: int(totalCount)}, nil
+}
+
+func matchingMemeIDs(ctx context.Context, tx pgx.Tx, tag string) ([]uuid.UUID, error) {
+	pattern := tagPattern(tag)
+	tags, _, _, _, _, err := generated.SelectTags(ctx, tx, "lower(name) LIKE $1", nil, nil, nil, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("find tags: %w", err)
+	}
+	seen := map[uuid.UUID]struct{}{}
+	result := make([]uuid.UUID, 0)
+	for _, tagObject := range tags {
+		links, _, _, _, _, selectErr := generated.SelectMemeTags(ctx, tx, fmt.Sprintf("%s = $1", generated.MemeTagTableTagIDColumn), nil, nil, nil, tagObject.ID)
+		if selectErr != nil {
+			return nil, fmt.Errorf("find tagged memes: %w", selectErr)
+		}
+		for _, link := range links {
+			if _, ok := seen[link.MemeID]; ok {
+				continue
+			}
+			seen[link.MemeID] = struct{}{}
+			result = append(result, link.MemeID)
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) Create(ctx context.Context, meme Meme, tags []string) error {
+	id := uuid.New()
+	if meme.ID != "" {
+		parsed, err := uuid.Parse(meme.ID)
+		if err != nil {
+			return fmt.Errorf("invalid meme id: %w", err)
+		}
+		id = parsed
+	}
+	created := time.Now().UTC()
+	if meme.CreatedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, meme.CreatedAt); err == nil {
+			created = parsed
+		}
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin create meme: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	order, err := nextSortOrder(ctx, tx)
+	if err != nil {
+		return err
+	}
+	object := &generated.Meme{
+		ID:                   id,
+		CreatedAt:            created,
+		UpdatedAt:            created,
+		Filename:             meme.Filename,
+		OriginalName:         meme.OriginalName,
+		MimeType:             meme.MimeType,
+		Size:                 meme.Size,
+		Description:          meme.Description,
+		DescriptionStatus:    defaultString(meme.DescriptionStatus, "none"),
+		DescriptionGenerated: boolInt(meme.DescriptionGenerated),
+		SortOrder:            order,
+	}
+	if err := object.Insert(ctx, tx, true, false); err != nil {
+		return fmt.Errorf("insert meme: %w", err)
+	}
+	if err := setTagsTx(ctx, tx, id, tags); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func nextSortOrder(ctx context.Context, tx pgx.Tx) (int64, error) {
+	orderBy := "sort_order DESC"
+	objects, _, _, _, _, err := generated.SelectMemes(ctx, tx, "", &orderBy, helperInt(1), helperInt(0))
+	if err != nil {
+		return 0, fmt.Errorf("allocate meme sort order: %w", err)
+	}
+	if len(objects) == 0 {
+		return 1, nil
+	}
+	return objects[0].SortOrder + 1, nil
+}
+
+func (s *Store) AddTags(ctx context.Context, memeID string, tags []string) error {
+	id, err := uuid.Parse(memeID)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := s.getTx(ctx, tx, id); err != nil {
+		return err
+	}
+	if err := setTagsTx(ctx, tx, id, tags); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) RemoveTag(ctx context.Context, memeID, tag string) error {
+	id, err := uuid.Parse(memeID)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := s.getTx(ctx, tx, id); err != nil {
+		return err
+	}
+	tags, _, _, _, _, err := generated.SelectTags(ctx, tx, "name = $1", nil, nil, nil, tag)
+	if err != nil {
+		return err
+	}
+	if len(tags) == 0 {
+		return ErrNotFound
+	}
+	links, _, _, _, _, err := generated.SelectMemeTags(ctx, tx, "meme_id = $1 AND tag_id = $2", nil, nil, nil, id, tags[0].ID)
+	if err != nil {
+		return err
+	}
+	if len(links) == 0 {
+		return ErrNotFound
+	}
+	links[0].DeletedAt = helpers.Ptr(time.Now().UTC())
+	if err := links[0].Update(ctx, tx, false, "deleted_at"); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) ReplaceTags(ctx context.Context, memeID string, tags []string) error {
+	id, err := uuid.Parse(memeID)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := s.getTx(ctx, tx, id); err != nil {
+		return err
+	}
+	links, _, _, _, _, err := generated.SelectMemeTags(ctx, tx, "meme_id = $1", nil, nil, nil, id)
+	if err != nil {
+		return err
+	}
+	for _, link := range links {
+		if err := link.Delete(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := setTagsTx(ctx, tx, id, tags); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) UpdateDescription(ctx context.Context, id, description, status string, generated bool) error {
+	return s.updateMemeFields(ctx, id, map[string]any{
+		"description":           description,
+		"description_status":    status,
+		"description_generated": boolInt(generated),
+	})
+}
+
+func (s *Store) updateMemeFields(ctx context.Context, id string, fields map[string]any) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, "id = $1", parsed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := object.UpdateFields(ctx, tx, fields); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) UpdateGeneratedContent(ctx context.Context, id, description, status string, generatedFlag bool, tags []string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin generated content update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, "id = $1", parsed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := object.UpdateFields(ctx, tx, map[string]any{
+		"description":           cleanStoredDescription(description),
+		"description_status":    status,
+		"description_generated": boolInt(generatedFlag),
+		"metadata_version":      int64(2),
+	}); err != nil {
+		return err
+	}
+	if err := setTagsTx(ctx, tx, parsed, tags); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) Pending(ctx context.Context) ([]Meme, error) {
+	return s.listMetadata(ctx, "description_status = $1", "pending")
+}
+
+func (s *Store) AllMetadata(ctx context.Context) ([]Meme, error) {
+	return s.listMetadata(ctx, "", nil)
+}
+
+func (s *Store) listMetadata(ctx context.Context, where string, values ...any) ([]Meme, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return store, nil
+	defer tx.Rollback(ctx)
+	orderBy := "sort_order DESC"
+	objects, _, _, _, _, err := generated.SelectMemes(ctx, tx, where, &orderBy, nil, nil, values...)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Meme, 0, len(objects))
+	for _, object := range objects {
+		meme, err := s.fromGenerated(ctx, tx, object)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, meme)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Filename(ctx context.Context, id string) (string, error) {
+	meme, err := s.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return meme.Filename, nil
+}
 
-func (s *Store) migrate(ctx context.Context) error {
-	const schema = `
-CREATE TABLE IF NOT EXISTS memes (
-    id TEXT PRIMARY KEY,
-    filename TEXT NOT NULL UNIQUE,
-    original_name TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    description_status TEXT NOT NULL DEFAULT 'none',
-    description_generated INTEGER NOT NULL DEFAULT 0,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    metadata_version INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS memes_created_at_idx ON memes(created_at DESC, id DESC);
-CREATE TABLE IF NOT EXISTS tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
-);
-CREATE TABLE IF NOT EXISTS meme_tags (
-    meme_id TEXT NOT NULL REFERENCES memes(id) ON DELETE CASCADE,
-    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (meme_id, tag_id)
-);
-CREATE INDEX IF NOT EXISTS meme_tags_tag_idx ON meme_tags(tag_id, meme_id);
-`
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("migrate database: %w", err)
+func (s *Store) Delete(ctx context.Context, id string) (Meme, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return Meme{}, ErrNotFound
 	}
-	if err := s.ensureSortOrder(ctx); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Meme{}, err
+	}
+	defer tx.Rollback(ctx)
+	meme, err := s.getTx(ctx, tx, parsed)
+	if err != nil {
+		return Meme{}, err
+	}
+	links, _, _, _, _, err := generated.SelectMemeTags(ctx, tx, "meme_id = $1", nil, nil, nil, parsed)
+	if err != nil {
+		return Meme{}, err
+	}
+	for _, link := range links {
+		if err := link.Delete(ctx, tx); err != nil {
+			return Meme{}, err
+		}
+	}
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, "id = $1", parsed)
+	if err != nil {
+		return Meme{}, err
+	}
+	if err := object.Delete(ctx, tx); err != nil {
+		return Meme{}, fmt.Errorf("delete meme: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Meme{}, err
+	}
+	return meme, nil
+}
+
+func (s *Store) Move(ctx context.Context, id, beforeID string) error {
+	return s.move(ctx, id, beforeID, "")
+}
+
+func (s *Store) MoveAfter(ctx context.Context, id, afterID string) error {
+	return s.move(ctx, id, "", afterID)
+}
+
+func (s *Store) move(ctx context.Context, id, beforeID, afterID string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	if err := s.ensureMetadataVersion(ctx); err != nil {
+	defer tx.Rollback(ctx)
+	orderBy := "sort_order DESC, created_at DESC, id DESC"
+	objects, _, _, _, _, err := generated.SelectMemes(ctx, tx, "", &orderBy, nil, nil)
+	if err != nil {
 		return err
 	}
-	if err := s.pruneFillerTags(ctx); err != nil {
-		return err
+	from := -1
+	for i, object := range objects {
+		if object.ID == parsed {
+			from = i
+			break
+		}
 	}
-	if err := s.sanitizeDescriptions(ctx); err != nil {
-		return err
+	if from < 0 {
+		return ErrNotFound
+	}
+	objects = append(objects[:from], objects[from+1:]...)
+	to := len(objects)
+	if beforeID != "" {
+		target, parseErr := uuid.Parse(beforeID)
+		if parseErr != nil {
+			return ErrNotFound
+		}
+		to = -1
+		for i, object := range objects {
+			if object.ID == target {
+				to = i
+				break
+			}
+		}
+	} else if afterID != "" {
+		target, parseErr := uuid.Parse(afterID)
+		if parseErr != nil {
+			return ErrNotFound
+		}
+		to = -1
+		for i, object := range objects {
+			if object.ID == target {
+				to = i + 1
+				break
+			}
+		}
+	}
+	if to < 0 {
+		return ErrNotFound
+	}
+	objects = append(objects, nil)
+	copy(objects[to+1:], objects[to:])
+	objects[to] = &generated.Meme{ID: parsed}
+	for i, object := range objects {
+		if object.ID == parsed {
+			// The selected object is reloaded so UpdateFields has a complete model
+			// and the generated API can apply its normal update/reload path.
+			object, _, _, _, _, err = generated.SelectMeme(ctx, tx, "id = $1", parsed)
+			if err != nil {
+				return err
+			}
+		}
+		if err := object.UpdateFields(ctx, tx, map[string]any{"sort_order": int64(len(objects) - i)}); err != nil {
+			return fmt.Errorf("update meme order: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func setTagsTx(ctx context.Context, tx pgx.Tx, memeID uuid.UUID, tags []string) error {
+	for _, name := range tags {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		tag, err := ensureTag(ctx, tx, name)
+		if err != nil {
+			return err
+		}
+		links, _, _, _, _, err := generated.SelectMemeTags(ctx, tx, "meme_id = $1 AND tag_id = $2 AND (deleted_at IS NULL OR deleted_at IS NOT NULL)", nil, nil, nil, memeID, tag.ID)
+		if err != nil {
+			return fmt.Errorf("find meme tag: %w", err)
+		}
+		if len(links) > 0 {
+			if links[0].DeletedAt != nil {
+				links[0].DeletedAt = nil
+				if err := links[0].Update(ctx, tx, false, "deleted_at"); err != nil {
+					return fmt.Errorf("restore meme tag: %w", err)
+				}
+			}
+			continue
+		}
+		link := &generated.MemeTag{MemeID: memeID, TagID: tag.ID}
+		if err := link.Insert(ctx, tx, false, false); err != nil {
+			return fmt.Errorf("insert meme tag: %w", err)
+		}
 	}
 	return nil
 }
 
-var fillerWords = map[string]struct{}{
-	"a": {}, "about": {}, "above": {}, "after": {}, "again": {}, "against": {}, "all": {}, "am": {}, "an": {}, "and": {}, "any": {}, "are": {}, "as": {}, "at": {},
-	"be": {}, "because": {}, "been": {}, "before": {}, "being": {}, "below": {}, "between": {}, "both": {}, "but": {}, "by": {},
-	"can": {}, "could": {}, "did": {}, "do": {}, "does": {}, "doing": {}, "down": {}, "during": {},
-	"each": {}, "few": {}, "for": {}, "from": {}, "further": {},
-	"had": {}, "has": {}, "have": {}, "having": {}, "he": {}, "her": {}, "here": {}, "hers": {}, "herself": {}, "him": {}, "himself": {}, "his": {}, "how": {},
-	"i": {}, "if": {}, "in": {}, "into": {}, "is": {}, "it": {}, "its": {}, "itself": {},
-	"just": {},
-	"me":   {}, "more": {}, "most": {}, "my": {}, "myself": {},
-	"no": {}, "nor": {}, "not": {}, "now": {},
-	"of": {}, "off": {}, "on": {}, "once": {}, "only": {}, "or": {}, "other": {}, "our": {}, "ours": {}, "ourselves": {}, "out": {}, "over": {}, "own": {},
-	"same": {}, "she": {}, "should": {}, "so": {}, "some": {}, "such": {},
-	"than": {}, "that": {}, "the": {}, "their": {}, "theirs": {}, "them": {}, "themselves": {}, "then": {}, "there": {}, "these": {}, "they": {}, "this": {}, "those": {}, "through": {}, "to": {}, "too": {},
-	"under": {}, "until": {}, "up": {},
-	"very": {},
-	"was":  {}, "we": {}, "were": {}, "what": {}, "when": {}, "where": {}, "which": {}, "while": {}, "who": {}, "whom": {}, "why": {}, "will": {}, "with": {}, "would": {},
-	"you": {}, "your": {}, "yours": {}, "yourself": {}, "yourselves": {},
+func ensureTag(ctx context.Context, tx pgx.Tx, name string) (*generated.Tag, error) {
+	tags, _, _, _, _, err := generated.SelectTags(ctx, tx, "name = $1 AND (deleted_at IS NULL OR deleted_at IS NOT NULL)", nil, nil, nil, name)
+	if err != nil {
+		return nil, fmt.Errorf("find tag: %w", err)
+	}
+	if len(tags) > 0 {
+		tag := tags[0]
+		if tag.DeletedAt != nil {
+			tag.DeletedAt = nil
+			if err := tag.Update(ctx, tx, false, "deleted_at"); err != nil {
+				return nil, fmt.Errorf("restore tag: %w", err)
+			}
+		}
+		return tag, nil
+	}
+	tag := &generated.Tag{Name: name}
+	if err := tag.Insert(ctx, tx, false, false); err != nil {
+		return nil, fmt.Errorf("insert tag: %w", err)
+	}
+	return tag, nil
 }
 
-var placeholderTags = map[string]struct{}{
-	"na": {}, "n-a": {}, "none": {}, "null": {}, "unknown": {}, "placeholder": {},
+func helperInt(value int) *int { return &value }
+
+func boolInt(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+var fillerWords = map[string]struct{}{"a": {}, "an": {}, "and": {}, "are": {}, "as": {}, "at": {}, "be": {}, "by": {}, "for": {}, "from": {}, "has": {}, "he": {}, "in": {}, "is": {}, "it": {}, "of": {}, "on": {}, "or": {}, "she": {}, "that": {}, "the": {}, "this": {}, "to": {}, "was": {}, "we": {}, "were": {}, "what": {}, "when": {}, "where": {}, "which": {}, "who": {}, "with": {}, "you": {}, "your": {}}
+var placeholderTags = map[string]struct{}{"na": {}, "n-a": {}, "none": {}, "null": {}, "unknown": {}, "placeholder": {}}
 
 func IsFillerWord(value string) bool {
 	_, ok := fillerWords[strings.ToLower(strings.TrimPrefix(strings.TrimSpace(value), "#"))]
@@ -153,50 +714,6 @@ func IsNoisyTag(value string) bool {
 	return allDigits
 }
 
-func (s *Store) pruneFillerTags(ctx context.Context) error {
-	words := make([]string, 0, len(fillerWords)+len(placeholderTags))
-	for word := range fillerWords {
-		words = append(words, word)
-	}
-	for word := range placeholderTags {
-		words = append(words, word)
-	}
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(words)), ",")
-	args := make([]any, len(words))
-	for i, word := range words {
-		args[i] = word
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM meme_tags WHERE tag_id IN (SELECT id FROM tags WHERE name IN (`+placeholders+`))`, args...); err != nil {
-		return fmt.Errorf("prune filler tags: %w", err)
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM tags`)
-	if err != nil {
-		return err
-	}
-	noisyIDs := []int64{}
-	for rows.Next() {
-		var id int64
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			rows.Close()
-			return err
-		}
-		if IsNoisyTag(name) {
-			noisyIDs = append(noisyIDs, id)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, id := range noisyIDs {
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM meme_tags WHERE tag_id = ?`, id); err != nil {
-			return err
-		}
-	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM meme_tags)`)
-	return err
-}
-
 func cleanStoredDescription(value string) string {
 	value = strings.TrimSpace(value)
 	var payload struct {
@@ -217,8 +734,8 @@ func cleanStoredDescription(value string) string {
 				start++
 				for end := start; end < len(value); end++ {
 					if value[end] == '"' && (end == start || value[end-1] != '\\') {
-						raw := value[start:end]
-						if description, err := strconv.Unquote(`"` + raw + `"`); err == nil && strings.TrimSpace(description) != "" {
+						var description string
+						if json.Unmarshal([]byte(`"`+value[start:end]+`"`), &description) == nil && strings.TrimSpace(description) != "" {
 							return strings.TrimSpace(description)
 						}
 					}
@@ -229,553 +746,10 @@ func cleanStoredDescription(value string) string {
 	return value
 }
 
-func (s *Store) sanitizeDescriptions(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, description FROM memes WHERE description LIKE '{%'`)
-	if err != nil {
-		return err
-	}
-	updates := [][2]string{}
-	for rows.Next() {
-		var id, description string
-		if err := rows.Scan(&id, &description); err != nil {
-			rows.Close()
-			return err
-		}
-		cleaned := cleanStoredDescription(description)
-		if cleaned != description {
-			updates = append(updates, [2]string{id, cleaned})
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, update := range updates {
-		if _, err := s.db.ExecContext(ctx, `UPDATE memes SET description = ?, updated_at = ? WHERE id = ?`, update[1], time.Now().UTC().Format(time.RFC3339Nano), update[0]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) ensureMetadataVersion(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(memes)`)
-	if err != nil {
-		return fmt.Errorf("inspect metadata schema: %w", err)
-	}
-	hasColumn := false
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return err
-		}
-		if name == "metadata_version" {
-			hasColumn = true
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !hasColumn {
-		if _, err := s.db.ExecContext(ctx, `ALTER TABLE memes ADD COLUMN metadata_version INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return fmt.Errorf("add metadata version: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *Store) ensureSortOrder(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(memes)`)
-	if err != nil {
-		return fmt.Errorf("inspect meme schema: %w", err)
-	}
-	hasSortOrder := false
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan meme schema: %w", err)
-		}
-		if name == "sort_order" {
-			hasSortOrder = true
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !hasSortOrder {
-		if _, err := s.db.ExecContext(ctx, `ALTER TABLE memes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return fmt.Errorf("add meme sort order: %w", err)
-		}
-	}
-	var zeroCount int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memes WHERE sort_order = 0`).Scan(&zeroCount); err != nil {
-		return err
-	}
-	if zeroCount == 0 {
-		return nil
-	}
-	ordered, err := s.db.QueryContext(ctx, `SELECT id FROM memes ORDER BY created_at DESC, id DESC`)
-	if err != nil {
-		return err
-	}
-	ids := []string{}
-	for ordered.Next() {
-		var id string
-		if err := ordered.Scan(&id); err != nil {
-			ordered.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	if err := ordered.Close(); err != nil {
-		return err
-	}
-	for index, id := range ids {
-		if _, err := s.db.ExecContext(ctx, `UPDATE memes SET sort_order = ? WHERE id = ?`, int64(len(ids)-index), id); err != nil {
-			return fmt.Errorf("backfill meme sort order: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *Store) Create(ctx context.Context, meme Meme, tags []string) error {
-	if meme.ID == "" {
-		meme.ID = uuid.NewString()
-	}
-	if meme.CreatedAt == "" {
-		meme.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	}
-	if meme.DescriptionStatus == "" {
-		meme.DescriptionStatus = "none"
-	}
-	if meme.SortOrder <= 0 {
-		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM memes`).Scan(&meme.SortOrder); err != nil {
-			return fmt.Errorf("allocate meme sort order: %w", err)
-		}
-	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO memes
-		(id, filename, original_name, mime_type, size, description, description_status, description_generated, sort_order, metadata_version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		meme.ID, meme.Filename, meme.OriginalName, meme.MimeType, meme.Size, meme.Description,
-		meme.DescriptionStatus, boolInt(meme.DescriptionGenerated), meme.SortOrder, 0, meme.CreatedAt, meme.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("insert meme: %w", err)
-	}
-	if err := s.setTags(ctx, meme.ID, tags); err != nil {
-		_, _ = s.db.ExecContext(ctx, `DELETE FROM memes WHERE id = ?`, meme.ID)
-		return err
-	}
-	return nil
-}
-
-func (s *Store) AddTags(ctx context.Context, memeID string, tags []string) error {
-	if _, err := s.Get(ctx, memeID); err != nil {
-		return err
-	}
-	return s.setTags(ctx, memeID, tags)
-}
-
-func (s *Store) RemoveTag(ctx context.Context, memeID, tag string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM meme_tags WHERE meme_id = ? AND tag_id IN (SELECT id FROM tags WHERE name = ?)`, memeID, tag)
-	if err != nil {
-		return err
-	}
-	if count, err := result.RowsAffected(); err != nil {
-		return err
-	} else if count == 0 {
-		return ErrNotFound
-	}
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM tags WHERE name = ? AND id NOT IN (SELECT tag_id FROM meme_tags)`, tag)
-	return nil
-}
-
-func (s *Store) ReplaceTags(ctx context.Context, memeID string, tags []string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM meme_tags WHERE meme_id = ?`, memeID); err != nil {
-		return err
-	}
-	for _, tag := range tags {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO tags(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, tag); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO meme_tags(meme_id, tag_id) SELECT ?, id FROM tags WHERE name = ? ON CONFLICT DO NOTHING`, memeID, tag); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM meme_tags)`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) setTags(ctx context.Context, memeID string, tags []string) error {
-	for _, tag := range tags {
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO tags(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, tag); err != nil {
-			return fmt.Errorf("insert tag: %w", err)
-		}
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO meme_tags(meme_id, tag_id) SELECT ?, id FROM tags WHERE name = ? ON CONFLICT DO NOTHING`, memeID, tag); err != nil {
-			return fmt.Errorf("link tag: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *Store) Get(ctx context.Context, id string) (Meme, error) {
-	var meme Meme
-	var generated int
-	err := s.db.QueryRowContext(ctx, `SELECT id, filename, original_name, mime_type, size, description,
-		description_status, description_generated, sort_order, metadata_version, created_at FROM memes WHERE id = ?`, id).
-		Scan(&meme.ID, &meme.Filename, &meme.OriginalName, &meme.MimeType, &meme.Size, &meme.Description,
-			&meme.DescriptionStatus, &generated, &meme.SortOrder, &meme.MetadataVersion, &meme.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Meme{}, ErrNotFound
-	}
-	if err != nil {
-		return Meme{}, fmt.Errorf("get meme: %w", err)
-	}
-	meme.Description = cleanStoredDescription(meme.Description)
-	meme.DescriptionGenerated = generated != 0
-	meme.Tags, err = s.tags(ctx, meme.ID)
-	if err != nil {
-		return Meme{}, err
-	}
-	return meme, nil
-}
-
-func (s *Store) AllMetadata(ctx context.Context) ([]Meme, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, filename, original_name, mime_type, size, description, description_status, description_generated, sort_order, metadata_version, created_at FROM memes ORDER BY sort_order DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("list unprocessed metadata: %w", err)
-	}
-	defer rows.Close()
-	result := []Meme{}
-	for rows.Next() {
-		var meme Meme
-		var generated int
-		if err := rows.Scan(&meme.ID, &meme.Filename, &meme.OriginalName, &meme.MimeType, &meme.Size, &meme.Description, &meme.DescriptionStatus, &generated, &meme.SortOrder, &meme.MetadataVersion, &meme.CreatedAt); err != nil {
-			return nil, err
-		}
-		meme.Description = cleanStoredDescription(meme.Description)
-		meme.DescriptionGenerated = generated != 0
-		meme.Tags, err = s.tags(ctx, meme.ID)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, meme)
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) Pending(ctx context.Context) ([]Meme, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, filename, mime_type, description, description_status, description_generated, sort_order, created_at FROM memes WHERE description_status = 'pending' ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("list pending descriptions: %w", err)
-	}
-	defer rows.Close()
-	pending := []Meme{}
-	for rows.Next() {
-		var meme Meme
-		var generated int
-		if err := rows.Scan(&meme.ID, &meme.Filename, &meme.MimeType, &meme.Description, &meme.DescriptionStatus, &generated, &meme.SortOrder, &meme.CreatedAt); err != nil {
-			return nil, err
-		}
-		meme.Description = cleanStoredDescription(meme.Description)
-		meme.DescriptionGenerated = generated != 0
-		pending = append(pending, meme)
-	}
-	return pending, rows.Err()
-}
-
-func (s *Store) UpdateDescription(ctx context.Context, id, description, status string, generated bool) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE memes SET description = ?, description_status = ?, description_generated = ?, updated_at = ? WHERE id = ?`,
-		description, status, boolInt(generated), time.Now().UTC().Format(time.RFC3339Nano), id)
-	if err != nil {
-		return fmt.Errorf("update description: %w", err)
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// UpdateGeneratedContent stores the result of one vision request and merges
-// generated tags with existing uploader tags.
-func (s *Store) UpdateGeneratedContent(ctx context.Context, id, description, status string, generated bool, tags []string) error {
-	description = cleanStoredDescription(description)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin generated content update: %w", err)
-	}
-	defer tx.Rollback()
-
-	result, err := tx.ExecContext(ctx, `UPDATE memes SET description = ?, description_status = ?, description_generated = ?, metadata_version = 2, updated_at = ? WHERE id = ?`,
-		description, status, boolInt(generated), time.Now().UTC().Format(time.RFC3339Nano), id)
-	if err != nil {
-		return fmt.Errorf("update generated content: %w", err)
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return ErrNotFound
-	}
-	if len(tags) > 0 {
-		for _, tag := range tags {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO tags(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, tag); err != nil {
-				return fmt.Errorf("insert generated tag: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO meme_tags(meme_id, tag_id) SELECT ?, id FROM tags WHERE name = ? ON CONFLICT DO NOTHING`, id, tag); err != nil {
-				return fmt.Errorf("link generated tag: %w", err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit generated content: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListResult, error) {
-	if limit < 1 || limit > 100 {
-		limit = 40
-	}
-	cursorOrder, cursorTime, cursorID, err := decodeCursor(cursor)
-	if err != nil {
-		return ListResult{}, err
-	}
-
-	where := []string{"1 = 1"}
-	args := make([]any, 0, 6)
-	if cursor != "" {
-		where = append(where, `(m.sort_order < ? OR (m.sort_order = ? AND (m.created_at < ? OR (m.created_at = ? AND m.id < ?))))`)
-		args = append(args, cursorOrder, cursorOrder, cursorTime, cursorTime, cursorID)
-	}
-	if tag != "" {
-		where = append(where, `EXISTS (SELECT 1 FROM meme_tags filter_mt JOIN tags filter_t ON filter_t.id = filter_mt.tag_id WHERE filter_mt.meme_id = m.id AND filter_t.name LIKE ? ESCAPE '\')`)
-		args = append(args, tagPattern(tag))
-	}
-	args = append(args, limit+1)
-	query := `SELECT m.id, m.filename, m.original_name, m.mime_type, m.size, m.description,
-		m.description_status, m.description_generated, m.sort_order, m.created_at,
-		COALESCE(GROUP_CONCAT(t.name, ','), '')
-		FROM memes m
-		LEFT JOIN meme_tags mt ON mt.meme_id = m.id
-		LEFT JOIN tags t ON t.id = mt.tag_id
-		WHERE ` + strings.Join(where, " AND ") + `
-		GROUP BY m.id ORDER BY m.sort_order DESC, m.created_at DESC, m.id DESC LIMIT ?`
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return ListResult{}, fmt.Errorf("list memes: %w", err)
-	}
-	defer rows.Close()
-	memes := make([]Meme, 0, limit)
-	for rows.Next() {
-		var meme Meme
-		var generated int
-		var tagList string
-		if err := rows.Scan(&meme.ID, &meme.Filename, &meme.OriginalName, &meme.MimeType, &meme.Size,
-			&meme.Description, &meme.DescriptionStatus, &generated, &meme.SortOrder, &meme.CreatedAt, &tagList); err != nil {
-			return ListResult{}, fmt.Errorf("scan meme: %w", err)
-		}
-		meme.Description = cleanStoredDescription(meme.Description)
-		meme.DescriptionGenerated = generated != 0
-		if tagList != "" {
-			meme.Tags = strings.Split(tagList, ",")
-			sort.Strings(meme.Tags)
-		} else {
-			meme.Tags = []string{}
-		}
-		memes = append(memes, meme)
-	}
-	if err := rows.Err(); err != nil {
-		return ListResult{}, err
-	}
-	next := ""
-	if len(memes) > limit {
-		last := memes[limit-1]
-		memes = memes[:limit]
-		next = encodeCursor(last.SortOrder, last.CreatedAt, last.ID)
-	}
-	total, err := s.count(ctx, tag)
-	if err != nil {
-		return ListResult{}, err
-	}
-	return ListResult{Memes: memes, NextCursor: next, Total: total}, nil
-}
-
-func (s *Store) count(ctx context.Context, tag string) (int, error) {
-	var count int
-	var err error
-	if tag == "" {
-		err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memes`).Scan(&count)
-	} else {
-		err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memes m WHERE EXISTS (SELECT 1 FROM meme_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.meme_id = m.id AND t.name LIKE ? ESCAPE '\')`, tagPattern(tag)).Scan(&count)
-	}
-	return count, err
-}
-
 func tagPattern(tag string) string {
 	value := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(tag), "#"))
-	value = strings.ReplaceAll(value, `\`, `\`+`\`)
-	value = strings.ReplaceAll(value, `%`, `\`+`%`)
-	value = strings.ReplaceAll(value, `_`, `\`+`_`)
-	return `%` + value + `%`
+	return "%" + value + "%"
 }
-
-func (s *Store) tags(ctx context.Context, memeID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT t.name FROM tags t JOIN meme_tags mt ON mt.tag_id = t.id WHERE mt.meme_id = ? ORDER BY t.name`, memeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []string{}
-	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
-			return nil, err
-		}
-		result = append(result, tag)
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) Filename(ctx context.Context, id string) (string, error) {
-	var filename string
-	err := s.db.QueryRowContext(ctx, `SELECT filename FROM memes WHERE id = ?`, id).Scan(&filename)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	return filename, err
-}
-
-func (s *Store) Delete(ctx context.Context, id string) (Meme, error) {
-	meme, err := s.Get(ctx, id)
-	if err != nil {
-		return Meme{}, err
-	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM memes WHERE id = ?`, id)
-	if err != nil {
-		return Meme{}, fmt.Errorf("delete meme: %w", err)
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return Meme{}, err
-	}
-	if count == 0 {
-		return Meme{}, ErrNotFound
-	}
-	return meme, nil
-}
-
-// Move places id immediately before beforeID in the current display order.
-// An empty beforeID moves the meme to the end.
-func (s *Store) Move(ctx context.Context, id, beforeID string) error {
-	return s.move(ctx, id, beforeID, "")
-}
-
-// MoveAfter places id immediately after afterID in the current display order.
-func (s *Store) MoveAfter(ctx context.Context, id, afterID string) error {
-	return s.move(ctx, id, "", afterID)
-}
-
-// Re-numbering keeps future inserts and cursor pagination deterministic after
-// repeated rearrangements.
-func (s *Store) move(ctx context.Context, id, beforeID, afterID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin meme move: %w", err)
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM memes ORDER BY sort_order DESC, created_at DESC, id DESC`)
-	if err != nil {
-		return fmt.Errorf("list memes for move: %w", err)
-	}
-	ids := []string{}
-	for rows.Next() {
-		var currentID string
-		if err := rows.Scan(&currentID); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, currentID)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	from := -1
-	for index, currentID := range ids {
-		if currentID == id {
-			from = index
-			break
-		}
-	}
-	if from < 0 {
-		return ErrNotFound
-	}
-	ids = append(ids[:from], ids[from+1:]...)
-	to := len(ids)
-	if beforeID != "" {
-		to = -1
-		for index, currentID := range ids {
-			if currentID == beforeID {
-				to = index
-				break
-			}
-		}
-		if to < 0 {
-			return ErrNotFound
-		}
-	} else if afterID != "" {
-		to = -1
-		for index, currentID := range ids {
-			if currentID == afterID {
-				to = index + 1
-				break
-			}
-		}
-		if to < 0 {
-			return ErrNotFound
-		}
-	}
-	ids = append(ids, "")
-	copy(ids[to+1:], ids[to:])
-	ids[to] = id
-	for index, currentID := range ids {
-		if _, err := tx.ExecContext(ctx, `UPDATE memes SET sort_order = ? WHERE id = ?`, int64(len(ids)-index), currentID); err != nil {
-			return fmt.Errorf("update meme move order: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit meme move: %w", err)
-	}
-	return nil
-}
-
-func boolInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
-}
-
-var ErrNotFound = errors.New("meme not found")
 
 func encodeCursor(sortOrder int64, createdAt, id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d\x00%s\x00%s", sortOrder, createdAt, id)))
@@ -793,9 +767,11 @@ func decodeCursor(value string) (int64, string, string, error) {
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return 0, "", "", fmt.Errorf("invalid cursor")
 	}
-	var sortOrder int64
-	if _, err := fmt.Sscan(parts[0], &sortOrder); err != nil {
+	var order int64
+	if _, err := fmt.Sscan(parts[0], &order); err != nil {
 		return 0, "", "", fmt.Errorf("invalid cursor")
 	}
-	return sortOrder, parts[1], parts[2], nil
+	return order, parts[1], parts[2], nil
 }
+
+var ErrNotFound = errors.New("meme not found")
