@@ -367,9 +367,6 @@ func cleanContent(raw json.RawMessage) string {
 func cleanText(text string) string {
 	text = strings.TrimSpace(strings.Trim(text, "\"'"))
 	text = strings.Join(strings.Fields(text), " ")
-	if len(text) > 500 {
-		text = text[:500]
-	}
 	return text
 }
 

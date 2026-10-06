@@ -106,7 +106,7 @@
   async function refreshLatest() {
     if (pollInFlight || loading || loadingMore || document.visibilityState === 'hidden') return;
     pollInFlight = true;
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), _t: Date.now() });
     if (selectedTag) params.set('tag', selectedTag);
     try {
       const result = await api(`/api/memes?${params}`);
