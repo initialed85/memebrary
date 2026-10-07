@@ -94,6 +94,15 @@ button:disabled {
   background: #38a169;
 }
 
+/* Polling is failing: the timeline shown may be older than the library. */
+.anonymous.stale {
+  color: #8d2d26;
+}
+
+.anonymous.stale .dot {
+  background: #e53e3e;
+}
+
 .filter {
   display: flex;
   align-items: center;

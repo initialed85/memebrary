@@ -1,8 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { listMemes } from './api';
+  import { listMemes, pollChangedMemes } from './api';
 
   const PAGE_SIZE = 36;
+  const POLL_INTERVAL_MS = 8000;
+  // A reorder touches every meme's updated_at, so one tick may have to drain
+  // several delta pages before the cursor is caught up.
+  const MAX_DELTA_PAGES = 8;
   const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
   const API_ROOT = '/api/custom';
 
@@ -13,6 +17,7 @@
   let loadingMore = false;
   let error = '';
   let toastMessage = '';
+  let pollError = '';
   let selectedTag = '';
   let tagQuery = '';
   let sentinel;
@@ -22,6 +27,9 @@
   let pollTimer;
   let filterTimer;
   let pollInFlight = false;
+  let pollFailures = 0;
+  let pollWatermark = '';
+  let pollCursor = '';
   let viewerId = '';
   let viewerTouchStartX = 0;
   let viewerTouchStartY = 0;
@@ -89,6 +97,10 @@
     if (reset) {
       loading = true;
       nextCursor = '';
+      // The watermark is about to be re-seeded for a new page/tag window, so a
+      // cursor left over from a truncated delta under the old filter must not
+      // skip rows that changed since the new watermark.
+      pollCursor = '';
     } else if (loadingMore || !nextCursor) {
       return;
     }
@@ -99,11 +111,18 @@
         limit: PAGE_SIZE,
         offset: reset ? 0 : Number(nextCursor),
         tag: selectedTag,
-        cache_bust: Date.now(),
       });
-      memes = reset ? result.memes : [...memes, ...result.memes];
+      if (reset) {
+        memes = result.memes;
+        total = result.total || 0;
+        seedPollWatermark(result.memes);
+      } else {
+        // New memes shift the offset window, so merge by id instead of
+        // appending and risking a duplicate keyed element.
+        applyMemes(result.memes);
+        total = result.total || total;
+      }
       nextCursor = result.next_cursor || '';
-      total = result.total || 0;
     } catch (err) {
       error = err.message;
     } finally {
@@ -112,28 +131,162 @@
     }
   }
 
+  // Poll deltas compare against meme.updated_at, so start the watermark just
+  // before the newest row on screen to catch writes that raced the page load.
+  function seedPollWatermark(items) {
+    const newest = (items || []).reduce(
+      (latest, item) =>
+        Date.parse(item.updated_at || '') > latest ? Date.parse(item.updated_at) : latest,
+      0,
+    );
+    pollWatermark = new Date(Math.max(0, (newest || Date.now()) - 60_000)).toISOString();
+  }
+
+  /**
+   * Apply a poll delta (or a meme this tab just wrote) to the timeline. The
+   * server is authoritative, but a delta can be a few milliseconds behind an
+   * in-flight write, so the freshest `updated_at` for an id wins and the
+   * visible order is the server's own `sort_order`, not the order rows arrived
+   * in. Rows the delta reports as `deleted` (or that vanished from it) are
+   * dropped, which is how a delete in another tab reaches this one.
+   */
+  function applyMemes(incoming) {
+    const byID = new Map(memes.map((item) => [item.id, item]));
+    let dirty = false;
+    for (const item of incoming || []) {
+      const existing = byID.get(item.id);
+      if (item.deleted) {
+        if (existing) {
+          byID.delete(item.id);
+          dirty = true;
+          if (viewerId === item.id) closeViewer();
+        }
+        continue;
+      }
+      if (
+        existing &&
+        Date.parse(item.updated_at || '') <= Date.parse(existing.updated_at || '')
+      ) {
+        // A stale delta for a row this tab already knows better about.
+        continue;
+      }
+      byID.set(item.id, item);
+      dirty = true;
+    }
+    if (!dirty) return;
+    memes = [...byID.values()].sort(compareTimeline);
+  }
+
+  // Mirrors the server's timeline ordering: sort_order DESC, created_at DESC,
+  // id DESC.
+  function compareTimeline(a, b) {
+    return (
+      (b.sort_order || 0) - (a.sort_order || 0) ||
+      Date.parse(b.created_at || '') - Date.parse(a.created_at || '') ||
+      (b.id || '').localeCompare(a.id || '')
+    );
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  /**
+   * Re-check a row this tab wrote, and keep following it while a vision job is
+   * still landing on it. Tag edits are final the moment the API answers, so
+   * they only need the one re-read; uploads and description retries are queued.
+   */
+  async function syncAfterWrite(meme) {
+    if (meme.description_status === 'pending') {
+      void syncMeme(meme.id);
+      return;
+    }
+    void syncNow(meme.id);
+  }
+
+  /** Re-read one meme from the database and apply it if it is newer. */
+  async function syncNow(id) {
+    try {
+      const fresh = await fetchMeme(id);
+      applyMemes([fresh]);
+      pollError = '';
+      return memes.find((item) => item.id === id) || null;
+    } catch (err) {
+      pollError = err.message;
+      return null;
+    }
+  }
+
+  /**
+   * Follow a write this tab made until the row stops changing. Uploads and
+   * description retries are answered immediately by the API while the vision
+   * worker is still queueing, so a single refetch is not enough: the modal
+   * would settle on the pre-write snapshot and never move again.
+   */
+  async function syncMeme(id) {
+    const settled = await syncNow(id);
+    let stamp = settled?.updated_at || '';
+    // Keep following the row while it is still moving (a vision job rewrites
+    // description/tags a few seconds later), then stop once it holds still.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await delay(2000);
+      const current = await syncNow(id);
+      if (!current) break;
+      if (current.updated_at === stamp && current.description_status !== 'pending') break;
+      stamp = current.updated_at;
+    }
+  }
+
+  /**
+   * Timer tick. Pulls only the rows whose metadata changed since the last tick
+   * (plus a short overlap), so the cost is a handful of rows instead of the
+   * whole first page, and deletions in another tab are picked up here. A
+   * reorder transaction stamps every meme, so one tick drains several delta
+   * pages before the cursor catches up with the database.
+   */
   async function refreshLatest() {
-    if (pollInFlight || loading || loadingMore || document.visibilityState === 'hidden') return;
+    if (pollInFlight || loading || document.visibilityState === 'hidden') return;
     pollInFlight = true;
     try {
-      const result = await listMemes({ limit: PAGE_SIZE, offset: 0, tag: selectedTag });
-      const remote = result.memes || [];
-      const remoteIDs = new Set(remote.map((item) => item.id));
-      // Merge remote items into existing array to keep deeper pages fresh without jumping scroll.
-      memes = memes.map((item) => {
-        const idx = remote.findIndex(r => r.id === item.id);
-        return idx !== -1 ? remote[idx] : item;
-      });
-      // If remote had more items than we have, append them.
-      const missing = remote.filter(r => !remoteIDs.has(r.id));
-      if (missing.length) memes = [...memes, ...missing];
-      total = result.total || 0;
-      if (!nextCursor || memes.length <= remote.length) nextCursor = result.next_cursor || '';
+      let pages = 0;
+      let cursor = pollCursor;
+      do {
+        const tick = await pollChangedMemes({
+          after: pollWatermark || new Date(Date.now() - 60_000).toISOString(),
+          cursor,
+          tag: selectedTag,
+        });
+        if (tick.memes.length) applyMemes(tick.memes);
+        if (!tick.cursor) pollWatermark = tick.watermark;
+        cursor = tick.cursor;
+        pages += 1;
+      } while (cursor && pages < MAX_DELTA_PAGES);
+      pollCursor = cursor;
+      pollError = '';
+      pollFailures = 0;
     } catch (err) {
-      // Ignore transient poll errors so the timeline keeps showing
+      // Loud, but non-blocking: the timeline stays on screen and the next tick
+      // retries from the last good watermark. Back off while failures stack up
+      // so a backend that is down is not hammered every few seconds.
+      pollFailures += 1;
+      pollError = err.message;
+      startPolling(Math.min(POLL_INTERVAL_MS * 2 ** pollFailures, 60_000));
     } finally {
       pollInFlight = false;
     }
+  }
+
+  function startPolling(intervalMs = POLL_INTERVAL_MS) {
+    window.clearInterval(pollTimer);
+    pollTimer = window.setInterval(refreshLatest, intervalMs);
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState !== 'visible') return;
+    // Returning to a tab that was hidden through several ticks catches up
+    // immediately, then restores the normal cadence after a failed-run backoff.
+    startPolling();
+    void refreshLatest();
   }
 
   function onPaste(event) {
@@ -778,14 +931,16 @@
     try {
       const meme = await api(`${API_ROOT}/memes`, { method: 'POST', body: form });
       if (!selectedTag || meme.tags?.includes(selectedTag)) {
-        memes = [meme, ...memes.filter((item) => item.id !== meme.id)];
-        total += 1;
+        applyMemes([meme]);
       }
       resetUpload();
       if (!uploadMessage) {
         toastMessage = uploadFile.name;
         window.setTimeout(() => { toastMessage = ''; }, 5000);
       }
+      // The vision worker is still queueing when the upload is answered, so
+      // keep following this row until its description/tags land.
+      void syncMeme(meme.id);
     } catch (err) {
       uploadMessage = err.message;
     } finally {
@@ -841,7 +996,9 @@
   async function removeTag(memeId, tag) {
     try {
       const updated = await api(`${API_ROOT}/memes/${memeId}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' });
-      memes = memes.map((item) => (item.id === updated.id ? updated : item));
+      applyMemes([updated]);
+      // A vision job may still be landing on this row; keep the modal in step.
+      void syncAfterWrite(updated);
     } catch (err) {
       error = err.message;
     }
@@ -856,8 +1013,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: tagInput.split(/[\\s,]+/).filter(Boolean) })
       });
-      memes = memes.map((item) => (item.id === updated.id ? updated : item));
+      applyMemes([updated]);
       tagInput = '';
+      // A vision job may still be landing on this row; keep the modal in step.
+      void syncAfterWrite(updated);
     } catch (err) {
       error = err.message;
     } finally {
@@ -869,7 +1028,9 @@
     if (!meme) return;
     try {
       const pending = await api(`${API_ROOT}/memes/${meme.id}/describe`, { method: 'POST' });
-      memes = memes.map((item) => (item.id === meme.id ? pending : item));
+      applyMemes([pending]);
+      // The worker answers immediately and rewrites the row seconds later.
+      void syncMeme(pending.id);
     } catch (err) {
       error = err.message;
     }
@@ -882,7 +1043,8 @@
     window.addEventListener('drop', preventWindowDrop);
     window.addEventListener('paste', onPaste);
     window.addEventListener('keydown', onKeyDown)
-    pollTimer = window.setInterval(refreshLatest, 8000);
+    window.addEventListener('visibilitychange', onVisibilityChange);
+    startPolling();
     observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && nextCursor && !loadingMore) load(false);
     }, { rootMargin: '500px' });
@@ -894,6 +1056,7 @@
       window.removeEventListener('drop', preventWindowDrop);
       window.removeEventListener('paste', onPaste);
       window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearInterval(pollTimer);
       if (filterTimer) window.clearTimeout(filterTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
@@ -911,7 +1074,11 @@
     <a class="wordmark" href="/" aria-label="meme/brary home">
       <span class="mark">m</span><span>meme<span class="slash">/</span>brary</span>
     </a>
-    <span class="anonymous" title="The timeline refreshes every 8 seconds"><span class="dot"></span> anonymous · live</span>
+    <span
+      class="anonymous"
+      class:stale={pollError}
+      title={pollError || 'The timeline refreshes every 8 seconds'}
+    ><span class="dot"></span> anonymous · {pollError ? 'stale' : 'live'}</span>
     <form class="filter" on:submit={applyTag}>
       <input id="tag-filter" bind:value={tagQuery} on:input={onTagInput} placeholder="#search tags" aria-label="Search hashtags" autocomplete="off" />
       {#if selectedTag}
@@ -994,6 +1161,13 @@
 
   {#if error}
     <div class="notice error" role="alert"><strong>Couldn’t load the library.</strong> {error} <button on:click={() => load(true)}>Try again</button></div>
+  {/if}
+
+  {#if pollError}
+    <div class="notice error" role="alert">
+      <strong>Recent changes aren’t landing.</strong> The timeline may be out of date. {pollError}
+      <button on:click={() => refreshLatest()}>Retry now</button>
+    </div>
   {/if}
 
   {#if loading}

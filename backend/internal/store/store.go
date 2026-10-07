@@ -31,9 +31,17 @@ type Meme struct {
 	DescriptionGenerated bool     `json:"description_generated"`
 	Tags                 []string `json:"tags"`
 	CreatedAt            string   `json:"created_at"`
-	SortOrder            int64    `json:"-"`
-	MetadataVersion      int      `json:"-"`
-	// ForceRegenerate is set only for an explicit user retry. It lets the
+	// UpdatedAt is exposed because it is the row's change stamp: djangolang's
+	// update trigger rewrites it on every mutation, so the frontend can tell a
+	// fresh write response apart from an older poll delta for the same id.
+	UpdatedAt string `json:"updated_at"`
+	// Deleted marks a soft-deleted row in an `updated_after` delta list, so a
+	// client watching for changes can drop a meme it still has on screen.
+	Deleted bool `json:"deleted,omitempty"`
+	// SortOrder is exposed so a poll delta can be merged into the client's
+	// timeline at the position the server actually ordered it.
+	SortOrder       int64 `json:"sort_order"`
+	MetadataVersion int   `json:"-"` // ForceRegenerate is set only for an explicit user retry. It lets the
 	// vision worker ignore existing metadata while retaining it for failure
 	// recovery until a replacement result is successfully persisted.
 	ForceRegenerate bool `json:"-"`
@@ -43,6 +51,12 @@ type ListResult struct {
 	Memes      []Meme `json:"memes"`
 	NextCursor string `json:"next_cursor,omitempty"`
 	Total      int    `json:"total"`
+	// ServerTime is the database clock at the start of an `updated_after` delta
+	// query. The frontend advances its poll watermark to this value instead of
+	// trusting a client clock that may be skewed behind the database.
+	ServerTime string `json:"server_time,omitempty"`
+	// Truncated reports that more changed rows exist behind NextCursor.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type Store struct {
@@ -102,6 +116,8 @@ func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.
 		DescriptionGenerated: object.DescriptionGenerated != 0,
 		Tags:                 tags,
 		CreatedAt:            object.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:            object.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		Deleted:              object.DeletedAt != nil,
 		SortOrder:            object.SortOrder,
 		MetadataVersion:      int(object.MetadataVersion),
 	}, nil
@@ -144,6 +160,22 @@ func reloadMemeTagWithTag(ctx context.Context, tx pgx.Tx, object *generated.Meme
 	return object, nil
 }
 
+// touchMeme bumps the meme row so the change is visible in that row's
+// updated_at. Tag edits live on meme_tag rows, and djangolang's CDC stream
+// still invalidates cached meme queries through the object graph, but the
+// frontend's poll ticks watch meme.updated_at, so the parent has to record the
+// touch as well.
+func touchMeme(ctx context.Context, tx pgx.Tx, memeID uuid.UUID) error {
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, fmt.Sprintf("%s = $1", generated.MemeTablePrimaryKeyColumn), memeID)
+	if err != nil {
+		return fmt.Errorf("select meme to touch: %w", err)
+	}
+	if err := object.UpdateFields(ctx, tx, map[string]any{"updated_at": time.Now().UTC()}); err != nil {
+		return fmt.Errorf("touch meme: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListResult, error) {
 	if limit < 1 || limit > 100 {
 		limit = 40
@@ -171,7 +203,7 @@ func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListRe
 	}
 
 	if strings.TrimSpace(tag) != "" {
-		matchingIDs, matchErr := matchingMemeIDs(ctx, tx, tag)
+		matchingIDs, matchErr := matchingMemeIDs(ctx, tx, tag, false)
 		if matchErr != nil {
 			return ListResult{}, matchErr
 		}
@@ -234,16 +266,126 @@ func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListRe
 	return ListResult{Memes: memes, NextCursor: next, Total: int(totalCount)}, nil
 }
 
-func matchingMemeIDs(ctx context.Context, tx pgx.Tx, tag string) ([]uuid.UUID, error) {
+// ListChanged returns memes whose metadata moved since `updatedAfter`, newest
+// change first, including rows that were soft-deleted in the same window. The
+// client's poll ticks use this as a delta feed: watching meme.updated_at costs
+// a handful of rows per tick instead of re-reading the whole first page, and
+// tombstones make deletions in another tab visible here.
+func (s *Store) ListChanged(ctx context.Context, limit int, updatedAfter, cursor, tag string) (ListResult, error) {
+	if limit < 1 || limit > 100 {
+		limit = 40
+	}
+	since, err := time.Parse(time.RFC3339Nano, updatedAfter)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("invalid updated_after")
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("begin list changed memes: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// The watermark the client resumes from must come from the same clock the
+	// updated_at trigger writes with, so read the database time first.
+	var dbNow time.Time
+	if err := tx.QueryRow(ctx, "SELECT now()").Scan(&dbNow); err != nil {
+		return ListResult{}, fmt.Errorf("read database time: %w", err)
+	}
+
+	whereParts := []string{"updated_at >= $1"}
+	values := []any{since}
+	if strings.TrimSpace(cursor) != "" {
+		cursorTime, cursorOrder, cursorID, err := decodeChangedCursor(cursor)
+		if err != nil {
+			return ListResult{}, err
+		}
+		// Keyset continuation for the delta ordering (updated_at, sort_order,
+		// id, all ascending). Row comparison is needed because a single reorder
+		// transaction stamps every meme with the same updated_at.
+		whereParts = append(whereParts, fmt.Sprintf(
+			"(updated_at, %s, id) > ($%d::timestamptz, $%d::bigint, $%d::uuid)",
+			generated.MemeTableSortOrderColumn, len(values)+1, len(values)+2, len(values)+3,
+		))
+		values = append(values, cursorTime, cursorOrder, cursorID)
+	}
+	if strings.TrimSpace(tag) != "" {
+		matchingIDs, matchErr := matchingMemeIDs(ctx, tx, tag, true)
+		if matchErr != nil {
+			return ListResult{}, matchErr
+		}
+		if len(matchingIDs) == 0 {
+			// Still report the server clock: the client advances its watermark to
+			// it, and a filter matching nothing today can match tomorrow.
+			return ListResult{Memes: []Meme{}, Total: 0, ServerTime: dbNow.UTC().Format(time.RFC3339Nano)}, tx.Commit(ctx)
+		}
+		placeholders := make([]string, 0, len(matchingIDs))
+		for _, id := range matchingIDs {
+			placeholders = append(placeholders, fmt.Sprintf("id = $%d", len(values)+1))
+			values = append(values, id)
+		}
+		whereParts = append(whereParts, "("+strings.Join(placeholders, " OR ")+")")
+	}
+
+	// The delta must include rows deleted since the watermark, so opt out of the
+	// generated selector's implicit `deleted_at IS null` filter.
+	whereParts = append(whereParts, "(deleted_at IS null OR deleted_at IS NOT null)")
+	where := strings.Join(whereParts, "\n    AND ")
+	orderBy := "updated_at ASC, sort_order ASC, id ASC"
+	pageLimit := limit + 1
+	objects, _, _, _, _, err := generated.SelectMemes(ctx, tx, where, &orderBy, &pageLimit, helperInt(0), values...)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("list changed memes: %w", err)
+	}
+
+	memes := make([]Meme, 0, len(objects))
+	for _, object := range objects {
+		meme, convertErr := s.fromGenerated(ctx, tx, object)
+		if convertErr != nil {
+			return ListResult{}, convertErr
+		}
+		memes = append(memes, meme)
+	}
+	// The cursor is the exact last row of the page in the delta's total ordering,
+	// so a page that ends inside a tie group (a reorder transaction stamps every
+	// meme it touched with one updated_at) simply continues on the next tick.
+	next := ""
+	truncated := len(memes) > limit
+	if truncated {
+		last := memes[limit-1]
+		memes = memes[:limit]
+		next = encodeChangedCursor(last.UpdatedAt, last.SortOrder, last.ID)
+	}
+	serverTime := dbNow.UTC().Format(time.RFC3339Nano)
+	if err := tx.Commit(ctx); err != nil {
+		return ListResult{}, fmt.Errorf("commit list changed memes: %w", err)
+	}
+	return ListResult{Memes: memes, NextCursor: next, ServerTime: serverTime, Truncated: truncated}, nil
+}
+
+// matchingMemeIDs resolves a tag pattern to the memes carrying it.
+//
+// includeDeletedLinks matters for the poll delta: a meme deleted out of band
+// reaches other tabs as a tombstone, but Delete soft-deletes its meme_tag links
+// too, so skipping those links would hide the very rows a filtered view has to
+// drop. The plain list passes false, because SelectMemes excludes deleted memes
+// anyway and an untagged-but-live row must never leak into a filtered view.
+func matchingMemeIDs(ctx context.Context, tx pgx.Tx, tag string, includeDeletedLinks bool) ([]uuid.UUID, error) {
 	pattern := tagPattern(tag)
-	tags, _, _, _, _, err := generated.SelectTags(ctx, tx, "lower(name) LIKE $1", nil, nil, nil, pattern)
+	tagWhere := "lower(name) LIKE $1"
+	linkWhere := fmt.Sprintf("%s = $1", generated.MemeTagTableTagIDColumn)
+	if includeDeletedLinks {
+		tagWhere += " AND (deleted_at IS NULL OR deleted_at IS NOT NULL)"
+		linkWhere += " AND (deleted_at IS NULL OR deleted_at IS NOT NULL)"
+	}
+	tags, _, _, _, _, err := generated.SelectTags(ctx, tx, tagWhere, nil, nil, nil, pattern)
 	if err != nil {
 		return nil, fmt.Errorf("find tags: %w", err)
 	}
 	seen := map[uuid.UUID]struct{}{}
 	result := make([]uuid.UUID, 0)
 	for _, tagObject := range tags {
-		links, _, _, _, _, selectErr := generated.SelectMemeTags(ctx, tx, fmt.Sprintf("%s = $1", generated.MemeTagTableTagIDColumn), nil, nil, nil, tagObject.ID)
+		links, _, _, _, _, selectErr := generated.SelectMemeTags(ctx, tx, linkWhere, nil, nil, nil, tagObject.ID)
 		if selectErr != nil {
 			return nil, fmt.Errorf("find tagged memes: %w", selectErr)
 		}
@@ -333,6 +475,9 @@ func (s *Store) AddTags(ctx context.Context, memeID string, tags []string) error
 	if err := setTagsTx(ctx, tx, id, tags); err != nil {
 		return err
 	}
+	if err := touchMeme(ctx, tx, id); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -367,6 +512,9 @@ func (s *Store) RemoveTag(ctx context.Context, memeID, tag string) error {
 	if err := links[0].Update(ctx, tx, false, "deleted_at"); err != nil {
 		return err
 	}
+	if err := touchMeme(ctx, tx, id); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -393,6 +541,9 @@ func (s *Store) ReplaceTags(ctx context.Context, memeID string, tags []string) e
 		}
 	}
 	if err := setTagsTx(ctx, tx, id, tags); err != nil {
+		return err
+	}
+	if err := touchMeme(ctx, tx, id); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -749,6 +900,36 @@ func cleanStoredDescription(value string) string {
 func tagPattern(tag string) string {
 	value := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(tag), "#"))
 	return "%" + value + "%"
+}
+
+// encodeChangedCursor is a keyset cursor over the delta ordering
+// (updated_at ASC, sort_order ASC, id ASC).
+func encodeChangedCursor(updatedAt string, sortOrder int64, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%s\x00%d\x00%s", updatedAt, sortOrder, id)))
+}
+
+func decodeChangedCursor(value string) (string, int64, uuid.UUID, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", 0, uuid.Nil, fmt.Errorf("invalid cursor")
+	}
+	parts := strings.SplitN(string(decoded), "\x00", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", 0, uuid.Nil, fmt.Errorf("invalid cursor")
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return "", 0, uuid.Nil, fmt.Errorf("invalid cursor")
+	}
+	var order int64
+	if _, err := fmt.Sscan(parts[1], &order); err != nil {
+		return "", 0, uuid.Nil, fmt.Errorf("invalid cursor")
+	}
+	id, err := uuid.Parse(parts[2])
+	if err != nil {
+		return "", 0, uuid.Nil, fmt.Errorf("invalid cursor")
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), order, id, nil
 }
 
 func encodeCursor(sortOrder int64, createdAt, id string) string {

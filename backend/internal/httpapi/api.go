@@ -124,7 +124,24 @@ func (a *API) memes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		result, err := a.store.List(r.Context(), limit, r.URL.Query().Get("cursor"), r.URL.Query().Get("tag"))
+		query := r.URL.Query()
+		// `updated_after` makes the list a poll delta: only memes whose metadata
+		// moved since the caller's watermark, oldest change first, including rows
+		// soft-deleted in that window so other tabs can drop them. `cursor`
+		// continues a delta page that overflowed.
+		if updatedAfter := strings.TrimSpace(query.Get("updated_after")); updatedAfter != "" {
+			result, err := a.store.ListChanged(r.Context(), limit, updatedAfter, query.Get("cursor"), query.Get("tag"))
+			if err != nil {
+				badRequest(w, err.Error())
+				return
+			}
+			for i := range result.Memes {
+				result.Memes[i].Filename = ""
+			}
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
+		result, err := a.store.List(r.Context(), limit, query.Get("cursor"), query.Get("tag"))
 		if err != nil {
 			badRequest(w, err.Error())
 			return
