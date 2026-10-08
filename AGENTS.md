@@ -171,35 +171,33 @@ docker build --platform=linux/amd64 \
 docker image push initialed85/memebrary-frontend:latest
 ```
 
-Both images are pushed as mutable `:latest` only (no extra tags). Deployments reference `:latest` with `imagePullPolicy: Always`; record the pushed digest (`docker buildx imagetools inspect <image>:latest --format '{{.Manifest.Digest}}'`) so you can confirm the rollout pulled it.
+The script pushes mutable `:latest` tags only; it does not create per-build tags. Note the backend Go module is `github.com/initialed85/membrary/backend` (one `e`) even though the images are `memebrary-*`.
 
-## Kubernetes deployments
+## Kubernetes deployment
 
-Two deployment targets exist in `~/Projects/Home/home-ops/applications/`:
+One target: `~/Projects/Home/home-ops/applications/memebrary-next/` → context `home-prod-next`, namespace `memebrary-next`, host `memebrary.prod.initialed85.cc`. This **is** production; the original implementation and the old `memebrary-dev`/`memebrary-last` deployments have been deleted, so roll deliberately and never re-point the ingress host without authorization.
 
-- `memebrary-dev` → `home-dev`, namespace `memebrary-dev`, host `memebrary.dev.initialed85.cc`
-- `memebrary-next` → `home-prod-next`, namespace `memebrary-next`, host `memebrary.prod.initialed85.cc` (the rewrite now serves the primary hostname; `memebrary-last.prod.initialed85.cc` is the old implementation)
-
-Apply in order:
+The manifests are applied by hand (no Argo app). Apply in order when creating or changing the stack:
 
 ```sh
-kubectl --context <context> apply -f namespace.yaml
-kubectl --context <context> apply -f configmap.yaml -f pvc.yaml -f postgres.yaml -f redis.yaml
-kubectl --context <context> apply -f backend.yaml -f frontend.yaml -f ingress.yaml
+cd ~/Projects/Home/home-ops/applications/memebrary-next
+kubectl --context home-prod-next apply -f namespace.yaml
+kubectl --context home-prod-next apply -f configmap.yaml -f pvc.yaml -f postgres.yaml -f redis.yaml
+kubectl --context home-prod-next apply -f backend.yaml -f frontend.yaml -f ingress.yaml
 ```
 
-The backend is a single `Recreate` pod because media remains on a shared ReadWriteOnce Longhorn volume. Metadata is stored in the in-namespace PostgreSQL StatefulSet, with Redis providing djangolang coordination. The backend image runs SQL migrations before starting. The frontend nginx image proxies `/api` (including `/api/custom/media`) to the in-namespace `memebrary-backend` Service.
+Topology: the backend is a single `Recreate` pod (container `backend`) because media lives on a ReadWriteOnce Longhorn PVC; metadata is in the in-namespace PostgreSQL StatefulSet with Redis for djangolang coordination; the backend image runs SQL migrations at startup. Frontend nginx (container `frontend`) serves the SPA and proxies `/api` — including `/api/custom/media` — to the in-namespace `memebrary-backend` Service.
 
-Both workloads run `image: initialed85/memebrary-*:latest` with `imagePullPolicy: Always`, so after pushing a new `:latest` a restart of only the affected workload is enough:
+### Rolling a new image
+
+Both workloads use `image: initialed85/memebrary-*:latest` with `imagePullPolicy: Always`, so after a push, restart only the changed workload:
 
 ```sh
 kubectl --context home-prod-next -n memebrary-next rollout restart deployment/memebrary-next-frontend
 kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
 ```
 
-`rollout restart` is a no-op unless the pod spec still references `:latest`; if a digest ever gets pinned into the deployment, the restart re-pulls that same old image and reports success (see Known trap below).
-
-Verify the rollout actually picked up the new image — compare the live `imageID` with the digest just pushed:
+Then verify the running image actually matches what was pushed — `rollout status` succeeding does not prove it:
 
 ```sh
 docker buildx imagetools inspect initialed85/memebrary-frontend:latest --format '{{.Manifest.Digest}}'
@@ -207,30 +205,27 @@ kubectl --context home-prod-next -n memebrary-next get pods -o wide
 kubectl --context home-prod-next -n memebrary-next get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\t"}{range .status.containerStatuses[*]}{.imageID}{"\n"}{end}{end}'
 ```
 
-For the frontend, also confirm the served bundle is the new one:
+Public endpoints (the `/media/<id>` path is proxied to `/api/custom/media/<id>`; use a real meme ID, unknown ones 404):
 
 ```sh
-curl -kfsS https://memebrary.prod.initialed85.cc/ | grep -o 'assets/index-[^"]*\.js'
 curl -kfsS https://memebrary.prod.initialed85.cc/healthz
+curl -kfsS https://memebrary.prod.initialed85.cc/ | grep -o 'assets/index-[^"]*\.js'   # frontend: new hash = new build live
+curl -kfsS "https://memebrary.prod.initialed85.cc/api/memes?limit=1" | head -c 200      # backend: schema/API round-trip
 ```
 
-Container names are `backend` and `frontend`.
-
-Media URLs: `/media/<id>` is proxied through nginx to `/api/custom/media/<id>` on the backend. Both public URLs should return HTTP 200.
+Rolling the backend briefly interrupts the pod (migrations run at startup) and restarts media serving; only roll it when its code changed.
 
 Do not modify router/network configuration as part of memebrary image rollouts.
 
 ### Known trap: digest pins leaking into the deployment
 
-`kubectl set image deployment/<name> <container>=<repo>@sha256:...` writes the digest into the pod template, and a later `kubectl apply` will not undo it unless the manifest itself is back to `:latest`. If the live spec shows a digest, restore it:
+`kubectl set image <deployment> <container>=<repo>@sha256:...` writes the digest into the pod template. From then on `rollout restart` re-pulls that same old image and still reports success, and `kubectl apply` will not undo it unless the manifest says `:latest`. Keep the manifests on `:latest` and never pin digests here. If a live spec shows a digest, restore it:
 
 ```sh
 kubectl --context home-prod-next -n memebrary-next set image deployment/memebrary-next-frontend \
   frontend=initialed85/memebrary-frontend:latest
 kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
 ```
-
-Then check `applications/memebrary-next/frontend.yaml` says `:latest` so the file and cluster agree.
 
 ## Migration to djangolang (context)
 
@@ -242,8 +237,7 @@ The rewrite migrated from a Go-native SQL store to djangolang's PostgreSQL ORM. 
 
 ## Important notes
 
-- **Do not modify or cut over existing production** (`memebrary-last`) until explicitly authorized.
-- The `memebrary-next` deployment is isolated from production; it uses dedicated PostgreSQL and media PVCs.
-- The home-ops cutover (commit `8137ae7`) maps `memebrary.prod.initialed85.cc` → rewrite and `memebrary-last.prod.initialed85.cc` → old implementation. Do not revert the ingress host.
-- The frontend viewer supports pinch zoom (1×–4×), shift-wheel zoom (0.25×–4×), and a fit/zoom toggle. The fit mode defaults to `true` for tall memes.
+- `memebrary.prod.initialed85.cc` is live production for the djangolang rewrite; the pre-rewrite implementation is gone. Do not re-point the ingress host or delete the namespace/PVCs without explicit authorization.
+- Media and metadata live on Longhorn PVCs in the `memebrary-next` namespace (`memebrary-next-data`, `data-memebrary-next-postgres-0`). `kubectl delete pvc`/`--volumes`-style cleanup destroys the library.
+- The frontend viewer supports pinch zoom (1×–4×), shift-wheel zoom (0.25×–4×), and a fit/zoom toggle. The fit mode defaults to `true` for tall memes. Login is stored in `localStorage` as an expiry timestamp (`memebrary-authenticated-until`, 24h).
 - Generated code directories (`pkg/api/`, `pkg/api_client/`, `frontend/src/api/`) are wiped and recreated by `build.sh`. Never manually edit generated files.

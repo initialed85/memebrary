@@ -4,7 +4,7 @@ A small anonymous image library with a dense Svelte timeline, drag-and-drop uplo
 
 ## Development
 
-Prerequisites: Go 1.27+, Docker Compose, Node.js 22+, Java, and `openapi-generator-cli`.
+Prerequisites: Go 1.26+ (`backend/go.mod` declares `go 1.26.3`), Docker Compose, Node.js 22+, Java, and `openapi-generator-cli`.
 
 From `backend/`, start the PostgreSQL/Redis generation environment and keep it running:
 
@@ -46,4 +46,4 @@ cd backend
 
 The script publishes `initialed85/memebrary-backend:latest` and `initialed85/memebrary-frontend:latest` (override with `BACKEND_IMAGE` and `FRONTEND_IMAGE`). The API image runs PostgreSQL migrations before starting djangolang and stores media under `MEDIA_DIR`.
 
-The manifests for the dev deployment live in `~/Projects/Home/home-ops/applications/memebrary-dev`. Apply them with `kubectl --context home-dev` as described there, then verify both rollouts and the public health endpoint.
+The manifests live in `~/Projects/Home/home-ops/applications/memebrary-next/` and are applied by hand against the `home-prod-next` context (namespace `memebrary-next`, host `memebrary.prod.initialed85.cc`). Both workloads run `:latest` with `imagePullPolicy: Always`, so after pushing, `kubectl --context home-prod-next -n memebrary-next rollout restart deployment/memebrary-next-frontend` (or `-backend`) picks up the new image. See `AGENTS.md` for the full rollout and verification steps.
