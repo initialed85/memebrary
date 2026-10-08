@@ -186,8 +186,13 @@ If an existing description is supplied, copy it exactly into description. If exi
 		// hidden reasoning and leave message.content empty.
 		"chat_template_kwargs": map[string]any{"enable_thinking": false},
 		"response_format":      map[string]string{"type": "json_object"},
-		"temperature":          0.2,
-		"max_tokens":           600,
+		// Use low-temperature sampling with a fixed seed: this avoids the
+		// repetitive loops seen with greedy decoding while keeping retries stable.
+		"temperature": 0.15,
+		"top_k":       30,
+		"top_p":       0.95,
+		"seed":        42,
+		"max_tokens":  600,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

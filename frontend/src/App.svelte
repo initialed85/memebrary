@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { fetchMeme, listMemes, pollChangedMemes } from './api';
 
   const PAGE_SIZE = 36;
@@ -13,7 +13,13 @@
   // draws the confident half so a meme is not covered in marginal boxes.
   const DETECTION_MIN_CONFIDENCE = 0.25;
   const DETECTION_STATE_KEY = 'memebrary.show_detections';
+  const LOGIN_PASSWORD = 'Password1';
+  const AUTH_STORAGE_KEY = 'memebrary-authenticated';
 
+  let authenticated = typeof window !== 'undefined' && localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
+  let loginPassword = '';
+  let loginError = '';
+  let appInitialized = false;
   let memes = [];
   let nextCursor = '';
   let total = 0;
@@ -1080,7 +1086,9 @@
     }
   }
 
-  onMount(() => {
+  function startApp() {
+    if (appInitialized) return;
+    appInitialized = true;
     showDetections = localStorage.getItem(DETECTION_STATE_KEY) === '1';
     window.addEventListener('resize', measureViewerScroll);
     load(true).then(applyRoute);
@@ -1088,20 +1096,37 @@
     window.addEventListener('dragover', preventWindowDrop);
     window.addEventListener('drop', preventWindowDrop);
     window.addEventListener('paste', onPaste);
-    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown);
     window.addEventListener('visibilitychange', onVisibilityChange);
     startPolling();
     observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && nextCursor && !loadingMore) load(false);
     }, { rootMargin: '500px' });
     if (sentinel) observer.observe(sentinel);
+  }
+
+  async function logIn() {
+    if (loginPassword !== LOGIN_PASSWORD) {
+      loginError = 'That password is not correct.';
+      return;
+    }
+    localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+    loginPassword = '';
+    loginError = '';
+    authenticated = true;
+    await tick();
+    startApp();
+  }
+
+  onMount(() => {
+    if (authenticated) startApp();
     return () => {
       observer?.disconnect();
       window.removeEventListener('popstate', applyRoute);
       window.removeEventListener('dragover', preventWindowDrop);
       window.removeEventListener('drop', preventWindowDrop);
       window.removeEventListener('paste', onPaste);
-      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('resize', measureViewerScroll);
       window.clearInterval(pollTimer);
@@ -1116,6 +1141,29 @@
   <title>meme/brary</title>
 </svelte:head>
 
+{#if !authenticated}
+  <main class="login-page">
+    <section class="login-card">
+      <div class="login-brand">
+        <div class="login-mark">m</div>
+        <p class="login-eyebrow">meme/brary</p>
+      </div>
+      <form class="login-form" on:submit|preventDefault={logIn}>
+        <input
+          id="login-password"
+          type="password"
+          aria-label="Password"
+          bind:value={loginPassword}
+          placeholder="Password"
+          autocomplete="current-password"
+          required
+        />
+        {#if loginError}<p class="login-error" role="alert">{loginError}</p>{/if}
+        <button class="button primary login-button" type="submit">Log in</button>
+      </form>
+    </section>
+  </main>
+{:else}
 <header class="topbar">
   <div class="topbar-inner">
     <a class="wordmark" href="/" aria-label="meme/brary home">
@@ -1371,3 +1419,4 @@
 {/if}
 
 <footer><span>meme/brary</span><span>no accounts · no tracking · just memes</span></footer>
+{/if}
