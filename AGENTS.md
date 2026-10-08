@@ -171,14 +171,14 @@ docker build --platform=linux/amd64 \
 docker image push initialed85/memebrary-frontend:latest
 ```
 
-Verify the image digest before rollout; `:latest` is mutable.
+Both images are pushed as mutable `:latest` only (no extra tags). Deployments reference `:latest` with `imagePullPolicy: Always`; record the pushed digest (`docker buildx imagetools inspect <image>:latest --template '{{.Manifest.Digest}}'`) so you can confirm the rollout pulled it.
 
 ## Kubernetes deployments
 
 Two deployment targets exist in `~/Projects/Home/home-ops/applications/`:
 
 - `memebrary-dev` → `home-dev`, namespace `memebrary-dev`, host `memebrary.dev.initialed85.cc`
-- `memebrary-next` → `home-prod-next`, namespace `memebrary-next`, host `memebrary-next.prod.initialed85.cc`
+- `memebrary-next` → `home-prod-next`, namespace `memebrary-next`, host `memebrary.prod.initialed85.cc` (the rewrite now serves the primary hostname; `memebrary-last.prod.initialed85.cc` is the old implementation)
 
 Apply in order:
 
@@ -190,29 +190,47 @@ kubectl --context <context> apply -f backend.yaml -f frontend.yaml -f ingress.ya
 
 The backend is a single `Recreate` pod because media remains on a shared ReadWriteOnce Longhorn volume. Metadata is stored in the in-namespace PostgreSQL StatefulSet, with Redis providing djangolang coordination. The backend image runs SQL migrations before starting. The frontend nginx image proxies `/api` (including `/api/custom/media`) to the in-namespace `memebrary-backend` Service.
 
-After pushing a new image, restart only the affected workload:
+Both workloads run `image: initialed85/memebrary-*:latest` with `imagePullPolicy: Always`, so after pushing a new `:latest` a restart of only the affected workload is enough:
 
 ```sh
 kubectl --context home-prod-next -n memebrary-next rollout restart deployment/memebrary-next-frontend
 kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
 ```
 
-Verify the rollout and image:
+`rollout restart` is a no-op unless the pod spec still references `:latest`; if a digest ever gets pinned into the deployment, the restart re-pulls that same old image and reports success (see Known trap below).
+
+Verify the rollout actually picked up the new image — compare the live `imageID` with the digest just pushed:
 
 ```sh
+docker buildx imagetools inspect initialed85/memebrary-frontend:latest --template '{{.Manifest.Digest}}\n'
 kubectl --context home-prod-next -n memebrary-next get pods -o wide
-kubectl --context home-prod-next -n memebrary-next get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.containerStatuses[*]}{.imageID}{"\n"}{end}{end}'
+kubectl --context home-prod-next -n memebrary-next get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\t"}{range .status.containerStatuses[*]}{.imageID}{"\n"}{end}{end}'
 ```
 
-Public health check:
+For the frontend, also confirm the served bundle is the new one:
 
 ```sh
-curl -kfsS https://memebrary-next.prod.initialed85.cc/healthz
+curl -kfsS https://memebrary.prod.initialed85.cc/ | grep -o 'assets/index-[^"]*\.js'
+curl -kfsS https://memebrary.prod.initialed85.cc/healthz
 ```
+
+Container names are `backend` and `frontend`.
 
 Media URLs: `/media/<id>` is proxied through nginx to `/api/custom/media/<id>` on the backend. Both public URLs should return HTTP 200.
 
 Do not modify router/network configuration as part of memebrary image rollouts.
+
+### Known trap: digest pins leaking into the deployment
+
+`kubectl set image deployment/<name> <container>=<repo>@sha256:...` writes the digest into the pod template, and a later `kubectl apply` will not undo it unless the manifest itself is back to `:latest`. If the live spec shows a digest, restore it:
+
+```sh
+kubectl --context home-prod-next -n memebrary-next set image deployment/memebrary-next-frontend \
+  frontend=initialed85/memebrary-frontend:latest
+kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
+```
+
+Then check `applications/memebrary-next/frontend.yaml` says `:latest` so the file and cluster agree.
 
 ## Migration to djangolang (context)
 
