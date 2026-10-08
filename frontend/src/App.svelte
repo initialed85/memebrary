@@ -14,9 +14,20 @@
   const DETECTION_MIN_CONFIDENCE = 0.25;
   const DETECTION_STATE_KEY = 'memebrary.show_detections';
   const LOGIN_PASSWORD = 'Password1';
-  const AUTH_STORAGE_KEY = 'memebrary-authenticated';
+  const LOGIN_DURATION_MS = 24 * 60 * 60 * 1000;
+  const AUTH_STORAGE_KEY = 'memebrary-authenticated-until';
 
-  let authenticated = typeof window !== 'undefined' && localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
+  function hasValidLogin() {
+    if (typeof window === 'undefined') return false;
+    const expiresAt = Number(localStorage.getItem(AUTH_STORAGE_KEY));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      return false;
+    }
+    return true;
+  }
+
+  let authenticated = hasValidLogin();
   let loginPassword = '';
   let loginError = '';
   let appInitialized = false;
@@ -1110,7 +1121,7 @@
       loginError = 'That password is not correct.';
       return;
     }
-    localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+    localStorage.setItem(AUTH_STORAGE_KEY, String(Date.now() + LOGIN_DURATION_MS));
     loginPassword = '';
     loginError = '';
     authenticated = true;
