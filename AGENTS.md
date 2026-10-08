@@ -171,7 +171,7 @@ docker build --platform=linux/amd64 \
 docker image push initialed85/memebrary-frontend:latest
 ```
 
-Both images are pushed as mutable `:latest` only (no extra tags). Deployments reference `:latest` with `imagePullPolicy: Always`; record the pushed digest (`docker buildx imagetools inspect <image>:latest --template '{{.Manifest.Digest}}'`) so you can confirm the rollout pulled it.
+Both images are pushed as mutable `:latest` only (no extra tags). Deployments reference `:latest` with `imagePullPolicy: Always`; record the pushed digest (`docker buildx imagetools inspect <image>:latest --format '{{.Manifest.Digest}}'`) so you can confirm the rollout pulled it.
 
 ## Kubernetes deployments
 
@@ -202,7 +202,7 @@ kubectl --context home-prod-next -n memebrary-next rollout status deployment/mem
 Verify the rollout actually picked up the new image — compare the live `imageID` with the digest just pushed:
 
 ```sh
-docker buildx imagetools inspect initialed85/memebrary-frontend:latest --template '{{.Manifest.Digest}}\n'
+docker buildx imagetools inspect initialed85/memebrary-frontend:latest --format '{{.Manifest.Digest}}'
 kubectl --context home-prod-next -n memebrary-next get pods -o wide
 kubectl --context home-prod-next -n memebrary-next get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\t"}{range .status.containerStatuses[*]}{.imageID}{"\n"}{end}{end}'
 ```
