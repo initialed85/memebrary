@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { listMemes, pollChangedMemes } from './api';
+  import { fetchMeme, listMemes, pollChangedMemes } from './api';
 
   const PAGE_SIZE = 36;
   const POLL_INTERVAL_MS = 8000;
@@ -960,6 +960,9 @@
 
   function onTagPointerDown(event, meme, tag) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    // currentTarget is only valid while the event is dispatching, so hold on to
+    // the element for the arming timer that runs after it.
+    const button = event.currentTarget;
     clearTagDelete();
     tagDeleteMemeId = meme.id;
     tagDeleteName = tag;
@@ -1011,7 +1014,9 @@
       const updated = await api(`${API_ROOT}/memes/${viewerMeme.id}/tags`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: tagInput.split(/[\\s,]+/).filter(Boolean) })
+        // The server owns tag parsing: it splits on spaces and commas, strips
+        // '#', validates, and dedupes, so the raw text is sent as one entry.
+        body: JSON.stringify({ tags: [tagInput.trim()] })
       });
       applyMemes([updated]);
       tagInput = '';
