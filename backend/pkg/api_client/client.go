@@ -51,6 +51,10 @@ type APIClient struct {
 
 	AiWorkerClaimMemeAPI *AiWorkerClaimMemeAPIService
 
+	DetectionAPI *DetectionAPIService
+
+	DetectionWorkerClaimMemeAPI *DetectionWorkerClaimMemeAPIService
+
 	MemeAPI *MemeAPIService
 
 	MemeTagAPI *MemeTagAPIService
@@ -75,6 +79,8 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 
 	// API Services
 	c.AiWorkerClaimMemeAPI = (*AiWorkerClaimMemeAPIService)(&c.common)
+	c.DetectionAPI = (*DetectionAPIService)(&c.common)
+	c.DetectionWorkerClaimMemeAPI = (*DetectionWorkerClaimMemeAPIService)(&c.common)
 	c.MemeAPI = (*MemeAPIService)(&c.common)
 	c.MemeTagAPI = (*MemeTagAPIService)(&c.common)
 	c.TagAPI = (*TagAPIService)(&c.common)

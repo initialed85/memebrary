@@ -79,12 +79,19 @@ All URIs are relative to *http://localhost*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *AiWorkerClaimMemeAPI* | [**PostAiWorkerClaimMemes**](docs/AiWorkerClaimMemeAPI.md#postaiworkerclaimmemes) | **Post** /api/ai-worker-claim-meme | 
+*DetectionAPI* | [**DeleteDetection**](docs/DetectionAPI.md#deletedetection) | **Delete** /api/detections/{primaryKey} | 
+*DetectionAPI* | [**GetDetection**](docs/DetectionAPI.md#getdetection) | **Get** /api/detections/{primaryKey} | 
+*DetectionAPI* | [**GetDetections**](docs/DetectionAPI.md#getdetections) | **Get** /api/detections | 
+*DetectionAPI* | [**PatchDetection**](docs/DetectionAPI.md#patchdetection) | **Patch** /api/detections/{primaryKey} | 
+*DetectionAPI* | [**PostDetections**](docs/DetectionAPI.md#postdetections) | **Post** /api/detections | 
+*DetectionWorkerClaimMemeAPI* | [**PostDetectionWorkerClaimMemes**](docs/DetectionWorkerClaimMemeAPI.md#postdetectionworkerclaimmemes) | **Post** /api/detection-worker-claim-meme | 
 *MemeAPI* | [**DeleteMeme**](docs/MemeAPI.md#deletememe) | **Delete** /api/memes/{primaryKey} | 
 *MemeAPI* | [**GetMeme**](docs/MemeAPI.md#getmeme) | **Get** /api/memes/{primaryKey} | 
 *MemeAPI* | [**GetMemes**](docs/MemeAPI.md#getmemes) | **Get** /api/memes | 
 *MemeAPI* | [**PatchMeme**](docs/MemeAPI.md#patchmeme) | **Patch** /api/memes/{primaryKey} | 
 *MemeAPI* | [**PostMemes**](docs/MemeAPI.md#postmemes) | **Post** /api/memes | 
 *MemeAPI* | [**PostMemesAiWorkerClaim**](docs/MemeAPI.md#postmemesaiworkerclaim) | **Post** /api/memes/{primaryKey}/ai-worker-claim | 
+*MemeAPI* | [**PostMemesDetectionWorkerClaim**](docs/MemeAPI.md#postmemesdetectionworkerclaim) | **Post** /api/memes/{primaryKey}/detection-worker-claim | 
 *MemeTagAPI* | [**DeleteMemeTag**](docs/MemeTagAPI.md#deletememetag) | **Delete** /api/meme-tags/{primaryKey} | 
 *MemeTagAPI* | [**GetMemeTag**](docs/MemeTagAPI.md#getmemetag) | **Get** /api/meme-tags/{primaryKey} | 
 *MemeTagAPI* | [**GetMemeTags**](docs/MemeTagAPI.md#getmemetags) | **Get** /api/meme-tags | 
@@ -99,10 +106,13 @@ Class | Method | HTTP request | Description
 
 ## Documentation For Models
 
+ - [Detection](docs/Detection.md)
  - [Meme](docs/Meme.md)
  - [MemeAiWorkerClaimRequest](docs/MemeAiWorkerClaimRequest.md)
+ - [MemeDetectionWorkerClaimRequest](docs/MemeDetectionWorkerClaimRequest.md)
  - [MemeTag](docs/MemeTag.md)
  - [PostAiWorkerClaimMemesDefaultResponse](docs/PostAiWorkerClaimMemesDefaultResponse.md)
+ - [ResponseWithGenericOfDetection](docs/ResponseWithGenericOfDetection.md)
  - [ResponseWithGenericOfMeme](docs/ResponseWithGenericOfMeme.md)
  - [ResponseWithGenericOfMemeTag](docs/ResponseWithGenericOfMemeTag.md)
  - [ResponseWithGenericOfTag](docs/ResponseWithGenericOfTag.md)

@@ -10,11 +10,14 @@ Name | Type | Description | Notes
 **Description** | Pointer to **string** |  | [optional] 
 **DescriptionGenerated** | Pointer to **int64** |  | [optional] 
 **DescriptionStatus** | Pointer to **string** |  | [optional] 
+**DetectionStatus** | Pointer to **string** |  | [optional] 
+**DetectionWorkerClaimedUntil** | Pointer to **time.Time** |  | [optional] 
 **Filename** | Pointer to **string** |  | [optional] 
 **Id** | Pointer to **string** |  | [optional] 
 **MetadataVersion** | Pointer to **int64** |  | [optional] 
 **MimeType** | Pointer to **string** |  | [optional] 
 **OriginalName** | Pointer to **string** |  | [optional] 
+**ReferencedByDetectionMemeIdObjects** | Pointer to [**[]Detection**](Detection.md) |  | [optional] 
 **ReferencedByMemeTagMemeIdObjects** | Pointer to [**[]MemeTag**](MemeTag.md) |  | [optional] 
 **Size** | Pointer to **int64** |  | [optional] 
 **SortOrder** | Pointer to **int64** |  | [optional] 
@@ -189,6 +192,56 @@ SetDescriptionStatus sets DescriptionStatus field to given value.
 
 HasDescriptionStatus returns a boolean if a field has been set.
 
+### GetDetectionStatus
+
+`func (o *Meme) GetDetectionStatus() string`
+
+GetDetectionStatus returns the DetectionStatus field if non-nil, zero value otherwise.
+
+### GetDetectionStatusOk
+
+`func (o *Meme) GetDetectionStatusOk() (*string, bool)`
+
+GetDetectionStatusOk returns a tuple with the DetectionStatus field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDetectionStatus
+
+`func (o *Meme) SetDetectionStatus(v string)`
+
+SetDetectionStatus sets DetectionStatus field to given value.
+
+### HasDetectionStatus
+
+`func (o *Meme) HasDetectionStatus() bool`
+
+HasDetectionStatus returns a boolean if a field has been set.
+
+### GetDetectionWorkerClaimedUntil
+
+`func (o *Meme) GetDetectionWorkerClaimedUntil() time.Time`
+
+GetDetectionWorkerClaimedUntil returns the DetectionWorkerClaimedUntil field if non-nil, zero value otherwise.
+
+### GetDetectionWorkerClaimedUntilOk
+
+`func (o *Meme) GetDetectionWorkerClaimedUntilOk() (*time.Time, bool)`
+
+GetDetectionWorkerClaimedUntilOk returns a tuple with the DetectionWorkerClaimedUntil field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDetectionWorkerClaimedUntil
+
+`func (o *Meme) SetDetectionWorkerClaimedUntil(v time.Time)`
+
+SetDetectionWorkerClaimedUntil sets DetectionWorkerClaimedUntil field to given value.
+
+### HasDetectionWorkerClaimedUntil
+
+`func (o *Meme) HasDetectionWorkerClaimedUntil() bool`
+
+HasDetectionWorkerClaimedUntil returns a boolean if a field has been set.
+
 ### GetFilename
 
 `func (o *Meme) GetFilename() string`
@@ -313,6 +366,31 @@ SetOriginalName sets OriginalName field to given value.
 `func (o *Meme) HasOriginalName() bool`
 
 HasOriginalName returns a boolean if a field has been set.
+
+### GetReferencedByDetectionMemeIdObjects
+
+`func (o *Meme) GetReferencedByDetectionMemeIdObjects() []Detection`
+
+GetReferencedByDetectionMemeIdObjects returns the ReferencedByDetectionMemeIdObjects field if non-nil, zero value otherwise.
+
+### GetReferencedByDetectionMemeIdObjectsOk
+
+`func (o *Meme) GetReferencedByDetectionMemeIdObjectsOk() (*[]Detection, bool)`
+
+GetReferencedByDetectionMemeIdObjectsOk returns a tuple with the ReferencedByDetectionMemeIdObjects field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetReferencedByDetectionMemeIdObjects
+
+`func (o *Meme) SetReferencedByDetectionMemeIdObjects(v []Detection)`
+
+SetReferencedByDetectionMemeIdObjects sets ReferencedByDetectionMemeIdObjects field to given value.
+
+### HasReferencedByDetectionMemeIdObjects
+
+`func (o *Meme) HasReferencedByDetectionMemeIdObjects() bool`
+
+HasReferencedByDetectionMemeIdObjects returns a boolean if a field has been set.
 
 ### GetReferencedByMemeTagMemeIdObjects
 

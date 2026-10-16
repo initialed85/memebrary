@@ -45,7 +45,7 @@ var MemeTagTable = "meme_tag"
 
 var MemeTagTableWithSchema = fmt.Sprintf("%s.%s", schema, MemeTagTable)
 
-var MemeTagTableNamespaceID int32 = 1337 + 2
+var MemeTagTableNamespaceID int32 = 1337 + 3
 
 var (
 	MemeTagTableIDColumn        = "id"
@@ -552,6 +552,179 @@ func (m *MemeTag) Update(ctx context.Context, tx pgx.Tx, setZeroValues bool, for
 	}
 
 	err = m.Reload(ctx, tx, slices.Contains(forceSetValuesForFields, "deleted_at"))
+	if err != nil {
+		return fmt.Errorf("failed to reload after update")
+	}
+
+	return nil
+}
+func (m *MemeTag) UpdateField(ctx context.Context, tx pgx.Tx, fieldName string, value any) error {
+	var columnName string
+	switch fieldName {
+
+	case "id":
+		columnName = MemeTagTableIDColumn
+
+	case "created_at":
+		columnName = MemeTagTableCreatedAtColumn
+
+	case "updated_at":
+		columnName = MemeTagTableUpdatedAtColumn
+
+	case "deleted_at":
+		columnName = MemeTagTableDeletedAtColumn
+
+	case "meme_id":
+		columnName = MemeTagTableMemeIDColumn
+
+	case "tag_id":
+		columnName = MemeTagTableTagIDColumn
+	default:
+		return fmt.Errorf("unknown field name: %v", fieldName)
+	}
+
+	var columnValue any
+	var err error
+	switch columnName {
+
+	case MemeTagTableIDColumn:
+		columnValue, err = types.FormatUUID(value)
+
+	case MemeTagTableCreatedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case MemeTagTableUpdatedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case MemeTagTableDeletedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case MemeTagTableMemeIDColumn:
+		columnValue, err = types.FormatUUID(value)
+
+	case MemeTagTableTagIDColumn:
+		columnValue, err = types.FormatUUID(value)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to format value for %v; %v", columnName, err)
+	}
+
+	ctx, cleanup := query.WithQueryID(ctx)
+	defer cleanup()
+
+	ctx = query.WithMaxDepth(ctx, nil)
+
+	_, err = query.Update(
+		ctx,
+		tx,
+		MemeTagTableWithSchema,
+		[]string{columnName},
+		fmt.Sprintf("%v = $$??", MemeTagTablePrimaryKeyColumn),
+		[]string{MemeTagTablePrimaryKeyColumn},
+		columnValue,
+		m.GetPrimaryKeyValue(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update field %v: %v", fieldName, err)
+	}
+
+	err = m.Reload(ctx, tx, false)
+	if err != nil {
+		return fmt.Errorf("failed to reload after update")
+	}
+
+	return nil
+}
+
+func (m *MemeTag) UpdateFields(ctx context.Context, tx pgx.Tx, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	fieldNames := make([]string, 0, len(fields))
+	for fieldName := range fields {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+
+	columns := make([]string, 0, len(fields))
+	values := make([]any, 0, len(fields)*2)
+
+	for _, fieldName := range fieldNames {
+		value := fields[fieldName]
+		var columnName string
+		switch fieldName {
+
+		case "id":
+			columnName = MemeTagTableIDColumn
+
+		case "created_at":
+			columnName = MemeTagTableCreatedAtColumn
+
+		case "updated_at":
+			columnName = MemeTagTableUpdatedAtColumn
+
+		case "deleted_at":
+			columnName = MemeTagTableDeletedAtColumn
+
+		case "meme_id":
+			columnName = MemeTagTableMemeIDColumn
+
+		case "tag_id":
+			columnName = MemeTagTableTagIDColumn
+		default:
+			return fmt.Errorf("unknown field name: %v", fieldName)
+		}
+
+		var columnValue any
+		var err error
+		switch columnName {
+
+		case MemeTagTableIDColumn:
+			columnValue, err = types.FormatUUID(value)
+
+		case MemeTagTableCreatedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case MemeTagTableUpdatedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case MemeTagTableDeletedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case MemeTagTableMemeIDColumn:
+			columnValue, err = types.FormatUUID(value)
+
+		case MemeTagTableTagIDColumn:
+			columnValue, err = types.FormatUUID(value)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to format value for %v; %v", columnName, err)
+		}
+
+		columns = append(columns, columnName)
+		values = append(values, columnValue)
+	}
+	values = append(values, m.GetPrimaryKeyValue())
+
+	ctx, cleanup := query.WithQueryID(ctx)
+	defer cleanup()
+
+	ctx = query.WithMaxDepth(ctx, nil)
+
+	_, err := query.Update(
+		ctx,
+		tx,
+		MemeTagTableWithSchema,
+		columns,
+		fmt.Sprintf("%v = $$??", MemeTagTablePrimaryKeyColumn),
+		[]string{MemeTagTablePrimaryKeyColumn},
+		values...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update fields: %v", err)
+	}
+
+	err = m.Reload(ctx, tx, false)
 	if err != nil {
 		return fmt.Errorf("failed to reload after update")
 	}
@@ -1642,141 +1815,4 @@ func init() {
 		"/meme-tags",
 		MutateRouterForMemeTag,
 	)
-}
-func (m *MemeTag) UpdateField(ctx context.Context, tx pgx.Tx, fieldName string, value any) error {
-	var columnName string
-	switch fieldName {
-	case "id":
-		columnName = MemeTagTableIDColumn
-	case "created_at":
-		columnName = MemeTagTableCreatedAtColumn
-	case "updated_at":
-		columnName = MemeTagTableUpdatedAtColumn
-	case "deleted_at":
-		columnName = MemeTagTableDeletedAtColumn
-	case "meme_id":
-		columnName = MemeTagTableMemeIDColumn
-	case "tag_id":
-		columnName = MemeTagTableTagIDColumn
-
-	default:
-		return fmt.Errorf("unknown field name: %v", fieldName)
-	}
-	var columnValue any
-	var err error
-	switch columnName {
-	case MemeTagTableIDColumn:
-		columnValue, err = types.FormatUUID(value)
-	case MemeTagTableCreatedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case MemeTagTableUpdatedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case MemeTagTableDeletedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case MemeTagTableMemeIDColumn:
-		columnValue, err = types.FormatUUID(value)
-	case MemeTagTableTagIDColumn:
-		columnValue, err = types.FormatUUID(value)
-
-	}
-	if err != nil {
-		return fmt.Errorf("failed to format value for %v; %v", columnName, err)
-	}
-	ctx, cleanup := query.WithQueryID(ctx)
-	defer cleanup()
-	ctx = query.WithMaxDepth(ctx, nil)
-	_, err = query.Update(
-		ctx,
-		tx,
-		MemeTagTableWithSchema,
-		[]string{columnName},
-		fmt.Sprintf("%v = $$??", MemeTagTableIDColumn),
-		[]string{MemeTagTableIDColumn},
-		columnValue,
-		m.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update field %v: %v", fieldName, err)
-	}
-	err = m.Reload(ctx, tx, false)
-	if err != nil {
-		return fmt.Errorf("failed to reload after update")
-	}
-	return nil
-}
-func (m *MemeTag) UpdateFields(ctx context.Context, tx pgx.Tx, fields map[string]any) error {
-	if len(fields) == 0 {
-		return nil
-	}
-	fieldNames := make([]string, 0, len(fields))
-	for fieldName := range fields {
-		fieldNames = append(fieldNames, fieldName)
-	}
-	sort.Strings(fieldNames)
-	columns := make([]string, 0, len(fields))
-	values := make([]any, 0, len(fields)*2)
-	for _, fieldName := range fieldNames {
-		value := fields[fieldName]
-		var columnName string
-		switch fieldName {
-		case "id":
-			columnName = MemeTagTableIDColumn
-		case "created_at":
-			columnName = MemeTagTableCreatedAtColumn
-		case "updated_at":
-			columnName = MemeTagTableUpdatedAtColumn
-		case "deleted_at":
-			columnName = MemeTagTableDeletedAtColumn
-		case "meme_id":
-			columnName = MemeTagTableMemeIDColumn
-		case "tag_id":
-			columnName = MemeTagTableTagIDColumn
-
-		default:
-			return fmt.Errorf("unknown field name: %v", fieldName)
-		}
-		var columnValue any
-		var err error
-		switch columnName {
-		case MemeTagTableIDColumn:
-			columnValue, err = types.FormatUUID(value)
-		case MemeTagTableCreatedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case MemeTagTableUpdatedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case MemeTagTableDeletedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case MemeTagTableMemeIDColumn:
-			columnValue, err = types.FormatUUID(value)
-		case MemeTagTableTagIDColumn:
-			columnValue, err = types.FormatUUID(value)
-
-		}
-		if err != nil {
-			return fmt.Errorf("failed to format value for %v; %v", columnName, err)
-		}
-		columns = append(columns, columnName)
-		values = append(values, columnValue)
-	}
-	values = append(values, m.ID)
-	ctx, cleanup := query.WithQueryID(ctx)
-	defer cleanup()
-	ctx = query.WithMaxDepth(ctx, nil)
-	_, err := query.Update(
-		ctx,
-		tx,
-		MemeTagTableWithSchema,
-		columns,
-		fmt.Sprintf("%v = $$??", MemeTagTableIDColumn),
-		[]string{MemeTagTableIDColumn},
-		values...,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update fields: %v", err)
-	}
-	err = m.Reload(ctx, tx, false)
-	if err != nil {
-		return fmt.Errorf("failed to reload after update")
-	}
-	return nil
 }

@@ -10,10 +10,12 @@ objects:
       - description_generated INTEGER NOT NULL DEFAULT 0
       - sort_order INTEGER NOT NULL DEFAULT 0
       - metadata_version INTEGER NOT NULL DEFAULT 0
+      - detection_status TEXT NOT NULL DEFAULT 'none'
     unique_on:
       - ["filename"]
     claims:
       - ai_worker
+      - detection_worker
 
   - name: tag
     properties:
@@ -25,8 +27,22 @@ objects:
     unique_on:
       - ["meme_id", "tag_id"]
 
+  - name: detection
+    properties:
+      - label TEXT NOT NULL CHECK (trim(label) != '')
+      - class_id INTEGER NOT NULL
+      - confidence DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1)
+      - x1 DOUBLE PRECISION NOT NULL CHECK (x1 >= 0 AND x1 <= 1)
+      - y1 DOUBLE PRECISION NOT NULL CHECK (y1 >= 0 AND y1 <= 1)
+      - x2 DOUBLE PRECISION NOT NULL CHECK (x2 >= 0 AND x2 <= 1)
+      - y2 DOUBLE PRECISION NOT NULL CHECK (y2 >= 0 AND y2 <= 1)
+
 relationships:
   - source: tag
     destination: meme
     type: many-to-many
     name: meme_tag
+
+  - source: meme
+    destination: detection
+    type: one-to-many

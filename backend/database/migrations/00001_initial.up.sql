@@ -21,7 +21,9 @@ CREATE TABLE
         description_generated INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 0,
         metadata_version INTEGER NOT NULL DEFAULT 0,
-        ai_worker_claimed_until timestamptz NOT NULL DEFAULT to_timestamp(0)
+        detection_status TEXT NOT NULL DEFAULT 'none',
+        ai_worker_claimed_until timestamptz NOT NULL DEFAULT to_timestamp(0),
+        detection_worker_claimed_until timestamptz NOT NULL DEFAULT to_timestamp(0)
     );
 
 ALTER TABLE public.meme OWNER TO postgres;
@@ -179,6 +181,68 @@ DO INSTEAD (
 );
 
 --
+-- detection
+--
+
+CREATE TABLE
+    public.detection (
+        id uuid PRIMARY KEY NOT NULL UNIQUE DEFAULT gen_random_uuid (),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        deleted_at timestamptz NULL DEFAULT NULL,
+        label TEXT NOT NULL CHECK (trim(label) != ''),
+        class_id INTEGER NOT NULL,
+        confidence DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+        x1 DOUBLE PRECISION NOT NULL CHECK (x1 >= 0 AND x1 <= 1),
+        y1 DOUBLE PRECISION NOT NULL CHECK (y1 >= 0 AND y1 <= 1),
+        x2 DOUBLE PRECISION NOT NULL CHECK (x2 >= 0 AND x2 <= 1),
+        y2 DOUBLE PRECISION NOT NULL CHECK (y2 >= 0 AND y2 <= 1)
+    );
+
+ALTER TABLE public.detection OWNER TO postgres;
+
+CREATE
+OR REPLACE FUNCTION create_detection () RETURNS TRIGGER AS $$
+BEGIN
+  NEW.created_at = now();
+  NEW.updated_at = now();
+  NEW.deleted_at = null;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER create_detection BEFORE INSERT ON public.detection FOR EACH ROW
+EXECUTE PROCEDURE create_detection ();
+
+CREATE
+OR REPLACE FUNCTION update_detection () RETURNS TRIGGER AS $$
+BEGIN
+  NEW.created_at = OLD.created_at;
+  NEW.updated_at = now();
+  IF OLD.deleted_at IS NOT null AND NEW.deleted_at IS NOT null THEN
+    NEW.deleted_at = OLD.deleted_at;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_detection BEFORE
+UPDATE ON public.detection FOR EACH ROW
+EXECUTE PROCEDURE public.update_detection ();
+
+CREATE RULE delete_detection AS ON DELETE TO public.detection
+DO INSTEAD (
+    UPDATE public.detection
+    SET
+        created_at = old.created_at,
+        updated_at = now(),
+        deleted_at = now()
+    WHERE
+        id = old.id
+        AND deleted_at IS null
+);
+
+--
 -- tag -> meme (many-to-many)
 --
 
@@ -188,6 +252,13 @@ ADD COLUMN meme_id uuid NOT NULL REFERENCES public.meme (id);
 
 ALTER TABLE public.meme_tag
 ADD COLUMN tag_id uuid NOT NULL REFERENCES public.tag (id);
+
+--
+-- meme -> detection (one-to-many)
+--
+
+ALTER TABLE public.detection
+ADD COLUMN meme_id uuid NOT NULL REFERENCES public.meme (id);
 
 --
 -- meme unique on (filename)

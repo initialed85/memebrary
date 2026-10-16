@@ -9,6 +9,10 @@
   const MAX_DELTA_PAGES = 8;
   const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
   const API_ROOT = '/api/custom';
+  // The worker stores everything above its inference threshold; the overlay only
+  // draws the confident half so a meme is not covered in marginal boxes.
+  const DETECTION_MIN_CONFIDENCE = 0.25;
+  const DETECTION_STATE_KEY = 'memebrary.show_detections';
 
   let memes = [];
   let nextCursor = '';
@@ -42,6 +46,21 @@
   let viewerPinching = false;
   let viewerPinchStartDistance = 0;
   let viewerPinchStartScale = 1;
+  let viewerImageEl;
+  let viewerAspect = 0;
+  let viewerScrollSize = { width: 0, height: 0 };
+  let showDetections = false;
+  // The overlay is positioned in percentages, so the frame it lives in has to be
+  // exactly the rendered content box. In fit mode the image is letterboxed inside
+  // its element box, so the frame is computed from the aspect ratio instead of
+  // relying on the element box.
+  $: frameWidth = viewerAspect && viewerScrollSize.width
+    ? viewerFit
+      ? Math.min(viewerScrollSize.width, viewerScrollSize.height * viewerAspect)
+      : viewerScrollSize.width * viewerScale
+    : 0;
+  $: frameHeight = viewerAspect && frameWidth ? frameWidth / viewerAspect : 0;
+  $: if (viewerImageScroll) measureViewerScroll();
   $: viewerIndex = viewerId ? memes.findIndex((item) => item.id === viewerId) : -1;
   $: viewerMeme = viewerIndex >= 0 ? memes[viewerIndex] : null;
 
@@ -232,7 +251,7 @@
       await delay(2000);
       const current = await syncNow(id);
       if (!current) break;
-      if (current.updated_at === stamp && current.description_status !== 'pending') break;
+      if (current.updated_at === stamp && current.description_status !== 'pending' && current.detection_status !== 'pending') break;
       stamp = current.updated_at;
     }
   }
@@ -376,6 +395,26 @@
 
   function setRoute(path, replace = false) {
     window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
+  }
+
+  function measureViewerScroll() {
+    if (!viewerImageScroll) return;
+    viewerScrollSize = {
+      width: viewerImageScroll.clientWidth,
+      height: viewerImageScroll.clientHeight,
+    };
+  }
+
+  function onViewerImageLoad(event) {
+    const image = event.currentTarget;
+    if (!image.naturalWidth || !image.naturalHeight) return;
+    viewerAspect = image.naturalWidth / image.naturalHeight;
+    measureViewerScroll();
+  }
+
+  function toggleDetections() {
+    showDetections = !showDetections;
+    localStorage.setItem(DETECTION_STATE_KEY, showDetections ? '1' : '0');
   }
 
   function showViewer(id, replace = false, direction = '') {
@@ -970,7 +1009,7 @@
     tagDeleteTimer = window.setTimeout(() => {
       tagDeleteActive = true;
       suppressTagClick = true;
-      event.currentTarget.setPointerCapture?.(event.pointerId);
+      button.setPointerCapture?.(event.pointerId);
     }, 550);
   }
 
@@ -1029,12 +1068,12 @@
     }
   }
 
-  async function retryDescription(meme) {
+  async function regenerateMeme(meme) {
     if (!meme) return;
     try {
       const pending = await api(`${API_ROOT}/memes/${meme.id}/describe`, { method: 'POST' });
       applyMemes([pending]);
-      // The worker answers immediately and rewrites the row seconds later.
+      // The workers answer immediately and rewrite the row seconds later.
       void syncMeme(pending.id);
     } catch (err) {
       error = err.message;
@@ -1042,6 +1081,8 @@
   }
 
   onMount(() => {
+    showDetections = localStorage.getItem(DETECTION_STATE_KEY) === '1';
+    window.addEventListener('resize', measureViewerScroll);
     load(true).then(applyRoute);
     window.addEventListener('popstate', applyRoute);
     window.addEventListener('dragover', preventWindowDrop);
@@ -1062,6 +1103,7 @@
       window.removeEventListener('paste', onPaste);
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('resize', measureViewerScroll);
       window.clearInterval(pollTimer);
       if (filterTimer) window.clearTimeout(filterTimer);
       if (uploadPreview) URL.revokeObjectURL(uploadPreview);
@@ -1241,6 +1283,12 @@
           <path d="M3 3l6 6M21 3l-6 6M3 21l6-6M21 21l-6-6" />
         </svg>
       </button>
+      <button class="viewer-fit-toggle viewer-detection-toggle" aria-pressed={showDetections} aria-label="Toggle detected objects" title="Toggle detected objects" on:click={toggleDetections}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+          <circle cx="12" cy="12" r="2.5" />
+        </svg>
+      </button>
       {#key viewerAnimationKey}
       <div class="viewer-image-stage">
         <div
@@ -1256,13 +1304,29 @@
           on:touchmove={onViewerTouchMove}
           on:touchend={onViewerTouchEnd}
         >
-          <img
-            class="viewer-image"
-            style={viewerFit ? '' : `width: ${viewerScale * 100}%; max-width: ${viewerScale > 1 ? 'none' : '100%'};`}
-            src={`${API_ROOT}/media/${viewerMeme.id}`}
-            alt={viewerMeme.description || 'Meme image'}
-            draggable="false"
-          />
+          <div class="viewer-image-frame" style={`width: ${frameWidth}px; height: ${frameHeight}px`}>
+            <img
+              class="viewer-image"
+              src={`${API_ROOT}/media/${viewerMeme.id}`}
+              alt={viewerMeme.description || 'Meme image'}
+              draggable="false"
+              on:load={onViewerImageLoad}
+            />
+            {#if showDetections && (viewerMeme.detections || []).length > 0}
+              <div class="detection-overlay" aria-hidden="true">
+                {#each viewerMeme.detections as detection}
+                  {#if detection.confidence >= DETECTION_MIN_CONFIDENCE}
+                    <div
+                      class="detection-box"
+                      style={`left: ${detection.x1 * 100}%; top: ${detection.y1 * 100}%; width: ${(detection.x2 - detection.x1) * 100}%; height: ${(detection.y2 - detection.y1) * 100}%`}
+                    >
+                      <span class="detection-label">{detection.label}</span>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
         <button class="viewer-arrow viewer-prev" aria-label="Previous meme" disabled={viewerIndex <= 0} on:click={viewerPrevious}>‹</button>
         <button class="viewer-arrow viewer-next" aria-label="Next meme" disabled={viewerIndex >= memes.length - 1 && !nextCursor} on:click={() => void viewerNext()}>›</button>
@@ -1274,16 +1338,16 @@
         {:else if viewerMeme.description}
           <div class="viewer-description">{viewerMeme.description}</div>
         {:else if viewerMeme.description_status === 'failed'}
-          <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => retryDescription(viewerMeme)}>retry</button></div>
+          <div class="viewer-description viewer-failed">Description unavailable · <button on:click={() => regenerateMeme(viewerMeme)}>retry</button></div>
         {/if}
         <div class="viewer-tags">
           <button
             type="button"
             class="viewer-regenerate"
-            title="Regenerate description and AI tags"
-            aria-label="Regenerate description and AI tags"
-            disabled={viewerMeme.description_status === 'pending'}
-            on:click={() => retryDescription(viewerMeme)}
+            title="Regenerate description, tags, and detections"
+            aria-label="Regenerate description, tags, and detections"
+            disabled={viewerMeme.description_status === 'pending' || viewerMeme.detection_status === 'pending'}
+            on:click={() => regenerateMeme(viewerMeme)}
           >↻</button>
           {#each viewerMeme.tags || [] as tag}
             <button

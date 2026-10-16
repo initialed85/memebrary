@@ -20,6 +20,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/detection-worker-claim-meme": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["PostDetectionWorkerClaimMemes"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/detections": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["GetDetections"];
+    put?: never;
+    post: operations["PostDetections"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/detections/{primaryKey}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["GetDetection"];
+    put?: never;
+    post?: never;
+    delete: operations["DeleteDetection"];
+    options?: never;
+    head?: never;
+    patch: operations["PatchDetection"];
+    trace?: never;
+  };
   "/api/meme-tags": {
     parameters: {
       query?: never;
@@ -100,6 +148,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/memes/{primaryKey}/detection-worker-claim": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["PostMemesDetectionWorkerClaim"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/tags": {
     parameters: {
       query?: never;
@@ -136,10 +200,37 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    ArrayOfNullableDetection: components["schemas"]["Detection"][] | null;
     ArrayOfNullableMeme: components["schemas"]["Meme"][] | null;
     ArrayOfNullableMemeTag: components["schemas"]["MemeTag"][] | null;
     ArrayOfNullableTag: components["schemas"]["Tag"][] | null;
     ArrayOfString: string[] | null;
+    Detection: {
+      /** Format: int64 */
+      class_id?: number;
+      /** Format: double */
+      confidence?: number;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      deleted_at?: string;
+      /** Format: uuid */
+      id?: string;
+      label?: string;
+      /** Format: uuid */
+      meme_id?: string;
+      meme_id_object?: components["schemas"]["Meme"];
+      /** Format: date-time */
+      updated_at?: string;
+      /** Format: double */
+      x1?: number;
+      /** Format: double */
+      x2?: number;
+      /** Format: double */
+      y1?: number;
+      /** Format: double */
+      y2?: number;
+    };
     Meme: {
       /** Format: date-time */
       ai_worker_claimed_until?: string;
@@ -151,6 +242,9 @@ export interface components {
       /** Format: int64 */
       description_generated?: number;
       description_status?: string;
+      detection_status?: string;
+      /** Format: date-time */
+      detection_worker_claimed_until?: string;
       filename?: string;
       /** Format: uuid */
       id?: string;
@@ -158,6 +252,8 @@ export interface components {
       metadata_version?: number;
       mime_type?: string;
       original_name?: string;
+      referenced_by_detection_meme_id_objects?:
+        components["schemas"]["Detection"][] | null;
       referenced_by_meme_tag_meme_id_objects?:
         components["schemas"]["MemeTag"][] | null;
       /** Format: int64 */
@@ -168,6 +264,12 @@ export interface components {
       updated_at?: string;
     };
     MemeAiWorkerClaimRequest: {
+      /** Format: double */
+      timeout_seconds?: number;
+      /** Format: date-time */
+      until?: string;
+    };
+    MemeDetectionWorkerClaimRequest: {
       /** Format: double */
       timeout_seconds?: number;
       /** Format: date-time */
@@ -189,9 +291,25 @@ export interface components {
       /** Format: date-time */
       updated_at?: string;
     };
+    NullableDetection: components["schemas"]["Detection"];
     NullableMeme: components["schemas"]["Meme"];
     NullableMemeTag: components["schemas"]["MemeTag"];
     NullableTag: components["schemas"]["Tag"];
+    ResponseWithGenericOfDetection: {
+      /** Format: int64 */
+      count?: number;
+      error?: string[] | null;
+      /** Format: int64 */
+      limit?: number;
+      objects?: components["schemas"]["Detection"][] | null;
+      /** Format: int64 */
+      offset?: number;
+      /** Format: int64 */
+      status?: number;
+      success?: boolean;
+      /** Format: int64 */
+      total_count?: number;
+    };
     ResponseWithGenericOfMeme: {
       /** Format: int64 */
       count?: number;
@@ -272,6 +390,8 @@ export interface operations {
          *     (0 = recurse until graph cycle detected, 1 = this object only, 2 = this object + neighbours, 3 = this object + neighbours + their neighbours... etc)
          */
         depth?: number;
+        /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
+        referenced_by_detection__load?: string;
         /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
         referenced_by_meme_tag__load?: string;
         /** @description SQL = comparison */
@@ -659,6 +779,38 @@ export interface operations {
         /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
         metadata_version__asc?: string;
         /** @description SQL = comparison */
+        detection_status__eq?: string;
+        /** @description SQL != comparison */
+        detection_status__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_status__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_status__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_status__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_status__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_status__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_status__notin?: string;
+        /** @description SQL @> comparison */
+        detection_status__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_status__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_status__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_status__asc?: string;
+        /** @description SQL = comparison */
         ai_worker_claimed_until__eq?: string;
         /** @description SQL != comparison */
         ai_worker_claimed_until__ne?: string;
@@ -690,6 +842,46 @@ export interface operations {
         ai_worker_claimed_until__desc?: string;
         /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
         ai_worker_claimed_until__asc?: string;
+        /** @description SQL = comparison */
+        detection_worker_claimed_until__eq?: string;
+        /** @description SQL != comparison */
+        detection_worker_claimed_until__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_worker_claimed_until__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_worker_claimed_until__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_worker_claimed_until__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_worker_claimed_until__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__notin?: string;
+        /** @description SQL @> comparison */
+        detection_worker_claimed_until__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_worker_claimed_until__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__asc?: string;
+        /** @description SQL @> comparison */
+        referenced_by_detection_meme_id_objects__contains?: unknown;
+        /** @description SQL NOT @> comparison */
+        referenced_by_detection_meme_id_objects__notcontains?: unknown;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__asc?: string;
         /** @description SQL @> comparison */
         referenced_by_meme_tag_meme_id_objects__contains?: unknown;
         /** @description SQL NOT @> comparison */
@@ -719,6 +911,1102 @@ export interface operations {
         };
       };
       /** @description PostAiWorkerClaimMemes failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  PostDetectionWorkerClaimMemes: {
+    parameters: {
+      query?: {
+        /** @description SQL LIMIT operator */
+        limit?: number;
+        /** @description SQL OFFSET operator */
+        offset?: number;
+        /**
+         * @description Max recursion depth for loading foreign objects; default = 1
+         *
+         *     (0 = recurse until graph cycle detected, 1 = this object only, 2 = this object + neighbours, 3 = this object + neighbours + their neighbours... etc)
+         */
+        depth?: number;
+        /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
+        referenced_by_detection__load?: string;
+        /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
+        referenced_by_meme_tag__load?: string;
+        /** @description SQL = comparison */
+        id__eq?: string;
+        /** @description SQL != comparison */
+        id__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        id__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        id__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        id__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        id__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        id__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        id__notin?: string;
+        /** @description SQL @> comparison */
+        id__contains?: string;
+        /** @description SQL NOT @> comparison */
+        id__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        id__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        id__asc?: string;
+        /** @description SQL = comparison */
+        created_at__eq?: string;
+        /** @description SQL != comparison */
+        created_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        created_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        created_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        created_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        created_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        created_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        created_at__notin?: string;
+        /** @description SQL @> comparison */
+        created_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        created_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        created_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        created_at__asc?: string;
+        /** @description SQL = comparison */
+        updated_at__eq?: string;
+        /** @description SQL != comparison */
+        updated_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        updated_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        updated_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        updated_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        updated_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        updated_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        updated_at__notin?: string;
+        /** @description SQL @> comparison */
+        updated_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        updated_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        updated_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        updated_at__asc?: string;
+        /** @description SQL = comparison */
+        deleted_at__eq?: string;
+        /** @description SQL != comparison */
+        deleted_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        deleted_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        deleted_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        deleted_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        deleted_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        deleted_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        deleted_at__notin?: string;
+        /** @description SQL @> comparison */
+        deleted_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        deleted_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        deleted_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        deleted_at__asc?: string;
+        /** @description SQL = comparison */
+        filename__eq?: string;
+        /** @description SQL != comparison */
+        filename__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        filename__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        filename__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        filename__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        filename__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        filename__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        filename__notin?: string;
+        /** @description SQL @> comparison */
+        filename__contains?: string;
+        /** @description SQL NOT @> comparison */
+        filename__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        filename__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        filename__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        filename__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        filename__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        filename__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        filename__asc?: string;
+        /** @description SQL = comparison */
+        original_name__eq?: string;
+        /** @description SQL != comparison */
+        original_name__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        original_name__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        original_name__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        original_name__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        original_name__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        original_name__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        original_name__notin?: string;
+        /** @description SQL @> comparison */
+        original_name__contains?: string;
+        /** @description SQL NOT @> comparison */
+        original_name__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        original_name__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        original_name__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        original_name__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        original_name__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        original_name__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        original_name__asc?: string;
+        /** @description SQL = comparison */
+        mime_type__eq?: string;
+        /** @description SQL != comparison */
+        mime_type__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        mime_type__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        mime_type__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        mime_type__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        mime_type__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        mime_type__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        mime_type__notin?: string;
+        /** @description SQL @> comparison */
+        mime_type__contains?: string;
+        /** @description SQL NOT @> comparison */
+        mime_type__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        mime_type__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        mime_type__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        mime_type__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        mime_type__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        mime_type__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        mime_type__asc?: string;
+        /** @description SQL = comparison */
+        size__eq?: number;
+        /** @description SQL != comparison */
+        size__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        size__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        size__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        size__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        size__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        size__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        size__notin?: number;
+        /** @description SQL @> comparison */
+        size__contains?: number;
+        /** @description SQL NOT @> comparison */
+        size__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        size__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        size__asc?: string;
+        /** @description SQL = comparison */
+        description__eq?: string;
+        /** @description SQL != comparison */
+        description__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        description__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        description__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        description__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        description__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        description__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        description__notin?: string;
+        /** @description SQL @> comparison */
+        description__contains?: string;
+        /** @description SQL NOT @> comparison */
+        description__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        description__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        description__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        description__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        description__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        description__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        description__asc?: string;
+        /** @description SQL = comparison */
+        description_status__eq?: string;
+        /** @description SQL != comparison */
+        description_status__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        description_status__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        description_status__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        description_status__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        description_status__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        description_status__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        description_status__notin?: string;
+        /** @description SQL @> comparison */
+        description_status__contains?: string;
+        /** @description SQL NOT @> comparison */
+        description_status__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        description_status__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        description_status__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        description_status__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        description_status__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        description_status__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        description_status__asc?: string;
+        /** @description SQL = comparison */
+        description_generated__eq?: number;
+        /** @description SQL != comparison */
+        description_generated__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        description_generated__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        description_generated__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        description_generated__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        description_generated__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        description_generated__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        description_generated__notin?: number;
+        /** @description SQL @> comparison */
+        description_generated__contains?: number;
+        /** @description SQL NOT @> comparison */
+        description_generated__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        description_generated__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        description_generated__asc?: string;
+        /** @description SQL = comparison */
+        sort_order__eq?: number;
+        /** @description SQL != comparison */
+        sort_order__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        sort_order__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        sort_order__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        sort_order__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        sort_order__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        sort_order__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        sort_order__notin?: number;
+        /** @description SQL @> comparison */
+        sort_order__contains?: number;
+        /** @description SQL NOT @> comparison */
+        sort_order__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        sort_order__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        sort_order__asc?: string;
+        /** @description SQL = comparison */
+        metadata_version__eq?: number;
+        /** @description SQL != comparison */
+        metadata_version__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        metadata_version__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        metadata_version__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        metadata_version__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        metadata_version__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        metadata_version__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        metadata_version__notin?: number;
+        /** @description SQL @> comparison */
+        metadata_version__contains?: number;
+        /** @description SQL NOT @> comparison */
+        metadata_version__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        metadata_version__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        metadata_version__asc?: string;
+        /** @description SQL = comparison */
+        detection_status__eq?: string;
+        /** @description SQL != comparison */
+        detection_status__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_status__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_status__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_status__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_status__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_status__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_status__notin?: string;
+        /** @description SQL @> comparison */
+        detection_status__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_status__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_status__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_status__asc?: string;
+        /** @description SQL = comparison */
+        ai_worker_claimed_until__eq?: string;
+        /** @description SQL != comparison */
+        ai_worker_claimed_until__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        ai_worker_claimed_until__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        ai_worker_claimed_until__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        ai_worker_claimed_until__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        ai_worker_claimed_until__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        ai_worker_claimed_until__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        ai_worker_claimed_until__notin?: string;
+        /** @description SQL @> comparison */
+        ai_worker_claimed_until__contains?: string;
+        /** @description SQL NOT @> comparison */
+        ai_worker_claimed_until__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        ai_worker_claimed_until__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        ai_worker_claimed_until__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        ai_worker_claimed_until__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        ai_worker_claimed_until__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        ai_worker_claimed_until__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        ai_worker_claimed_until__asc?: string;
+        /** @description SQL = comparison */
+        detection_worker_claimed_until__eq?: string;
+        /** @description SQL != comparison */
+        detection_worker_claimed_until__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_worker_claimed_until__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_worker_claimed_until__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_worker_claimed_until__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_worker_claimed_until__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__notin?: string;
+        /** @description SQL @> comparison */
+        detection_worker_claimed_until__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_worker_claimed_until__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__asc?: string;
+        /** @description SQL @> comparison */
+        referenced_by_detection_meme_id_objects__contains?: unknown;
+        /** @description SQL NOT @> comparison */
+        referenced_by_detection_meme_id_objects__notcontains?: unknown;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__asc?: string;
+        /** @description SQL @> comparison */
+        referenced_by_meme_tag_meme_id_objects__contains?: unknown;
+        /** @description SQL NOT @> comparison */
+        referenced_by_meme_tag_meme_id_objects__notcontains?: unknown;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_meme_tag_meme_id_objects__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_meme_tag_meme_id_objects__asc?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MemeDetectionWorkerClaimRequest"];
+      };
+    };
+    responses: {
+      /** @description PostDetectionWorkerClaimMemes success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfMeme"];
+        };
+      };
+      /** @description PostDetectionWorkerClaimMemes failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  GetDetections: {
+    parameters: {
+      query?: {
+        /** @description SQL LIMIT operator */
+        limit?: number;
+        /** @description SQL OFFSET operator */
+        offset?: number;
+        /**
+         * @description Max recursion depth for loading foreign objects; default = 1
+         *
+         *     (0 = recurse until graph cycle detected, 1 = this object only, 2 = this object + neighbours, 3 = this object + neighbours + their neighbours... etc)
+         */
+        depth?: number;
+        /** @description load the given directly related object, value is ignored (presence of key is sufficient) */
+        meme__load?: string;
+        /** @description SQL = comparison */
+        id__eq?: string;
+        /** @description SQL != comparison */
+        id__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        id__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        id__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        id__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        id__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        id__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        id__notin?: string;
+        /** @description SQL @> comparison */
+        id__contains?: string;
+        /** @description SQL NOT @> comparison */
+        id__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        id__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        id__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        id__asc?: string;
+        /** @description SQL = comparison */
+        created_at__eq?: string;
+        /** @description SQL != comparison */
+        created_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        created_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        created_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        created_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        created_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        created_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        created_at__notin?: string;
+        /** @description SQL @> comparison */
+        created_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        created_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        created_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        created_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        created_at__asc?: string;
+        /** @description SQL = comparison */
+        updated_at__eq?: string;
+        /** @description SQL != comparison */
+        updated_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        updated_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        updated_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        updated_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        updated_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        updated_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        updated_at__notin?: string;
+        /** @description SQL @> comparison */
+        updated_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        updated_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        updated_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        updated_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        updated_at__asc?: string;
+        /** @description SQL = comparison */
+        deleted_at__eq?: string;
+        /** @description SQL != comparison */
+        deleted_at__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        deleted_at__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        deleted_at__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        deleted_at__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        deleted_at__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        deleted_at__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        deleted_at__notin?: string;
+        /** @description SQL @> comparison */
+        deleted_at__contains?: string;
+        /** @description SQL NOT @> comparison */
+        deleted_at__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        deleted_at__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        deleted_at__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        deleted_at__asc?: string;
+        /** @description SQL = comparison */
+        label__eq?: string;
+        /** @description SQL != comparison */
+        label__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        label__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        label__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        label__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        label__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        label__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        label__notin?: string;
+        /** @description SQL @> comparison */
+        label__contains?: string;
+        /** @description SQL NOT @> comparison */
+        label__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        label__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        label__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        label__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        label__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        label__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        label__asc?: string;
+        /** @description SQL = comparison */
+        class_id__eq?: number;
+        /** @description SQL != comparison */
+        class_id__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        class_id__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        class_id__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        class_id__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        class_id__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        class_id__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        class_id__notin?: number;
+        /** @description SQL @> comparison */
+        class_id__contains?: number;
+        /** @description SQL NOT @> comparison */
+        class_id__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        class_id__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        class_id__asc?: string;
+        /** @description SQL = comparison */
+        confidence__eq?: number;
+        /** @description SQL != comparison */
+        confidence__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        confidence__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        confidence__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        confidence__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        confidence__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        confidence__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        confidence__notin?: number;
+        /** @description SQL @> comparison */
+        confidence__contains?: number;
+        /** @description SQL NOT @> comparison */
+        confidence__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        confidence__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        confidence__asc?: string;
+        /** @description SQL = comparison */
+        x1__eq?: number;
+        /** @description SQL != comparison */
+        x1__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        x1__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        x1__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        x1__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        x1__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        x1__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        x1__notin?: number;
+        /** @description SQL @> comparison */
+        x1__contains?: number;
+        /** @description SQL NOT @> comparison */
+        x1__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        x1__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        x1__asc?: string;
+        /** @description SQL = comparison */
+        y1__eq?: number;
+        /** @description SQL != comparison */
+        y1__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        y1__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        y1__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        y1__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        y1__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        y1__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        y1__notin?: number;
+        /** @description SQL @> comparison */
+        y1__contains?: number;
+        /** @description SQL NOT @> comparison */
+        y1__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        y1__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        y1__asc?: string;
+        /** @description SQL = comparison */
+        x2__eq?: number;
+        /** @description SQL != comparison */
+        x2__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        x2__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        x2__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        x2__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        x2__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        x2__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        x2__notin?: number;
+        /** @description SQL @> comparison */
+        x2__contains?: number;
+        /** @description SQL NOT @> comparison */
+        x2__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        x2__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        x2__asc?: string;
+        /** @description SQL = comparison */
+        y2__eq?: number;
+        /** @description SQL != comparison */
+        y2__ne?: number;
+        /** @description SQL > comparison, may not work with all column types */
+        y2__gt?: number;
+        /** @description SQL >= comparison, may not work with all column types */
+        y2__gte?: number;
+        /** @description SQL < comparison, may not work with all column types */
+        y2__lt?: number;
+        /** @description SQL <= comparison, may not work with all column types */
+        y2__lte?: number;
+        /** @description SQL IN comparison, permits comma-separated values */
+        y2__in?: number;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        y2__notin?: number;
+        /** @description SQL @> comparison */
+        y2__contains?: number;
+        /** @description SQL NOT @> comparison */
+        y2__notcontains?: number;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        y2__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        y2__asc?: string;
+        /** @description SQL = comparison */
+        meme_id__eq?: string;
+        /** @description SQL != comparison */
+        meme_id__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        meme_id__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        meme_id__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        meme_id__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        meme_id__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        meme_id__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        meme_id__notin?: string;
+        /** @description SQL @> comparison */
+        meme_id__contains?: string;
+        /** @description SQL NOT @> comparison */
+        meme_id__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        meme_id__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        meme_id__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        meme_id__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        meme_id__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        meme_id__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        meme_id__asc?: string;
+        /** @description SQL @> comparison */
+        meme_id_object__contains?: unknown;
+        /** @description SQL NOT @> comparison */
+        meme_id_object__notcontains?: unknown;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        meme_id_object__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        meme_id_object__asc?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description GetDetections success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfDetection"];
+        };
+      };
+      /** @description GetDetections failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  PostDetections: {
+    parameters: {
+      query?: {
+        /** @description Query parameter depth */
+        depth?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ArrayOfNullableDetection"];
+      };
+    };
+    responses: {
+      /** @description PostDetections success */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfDetection"];
+        };
+      };
+      /** @description PostDetections failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  GetDetection: {
+    parameters: {
+      query?: {
+        /** @description Query parameter depth */
+        depth?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Path parameter primaryKey */
+        primaryKey: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description GetDetection success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfDetection"];
+        };
+      };
+      /** @description GetDetection failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  DeleteDetection: {
+    parameters: {
+      query?: {
+        /** @description Query parameter depth */
+        depth?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Path parameter primaryKey */
+        primaryKey: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description DeleteDetection success */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description DeleteDetection failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PatchDetection: {
+    parameters: {
+      query?: {
+        /** @description Query parameter depth */
+        depth?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Path parameter primaryKey */
+        primaryKey: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Detection"];
+      };
+    };
+    responses: {
+      /** @description PatchDetection success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfDetection"];
+        };
+      };
+      /** @description PatchDetection failure */
       default: {
         headers: {
           [name: string]: unknown;
@@ -1161,6 +2449,8 @@ export interface operations {
          */
         depth?: number;
         /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
+        referenced_by_detection__load?: string;
+        /** @description load the given indirectly related objects, value is ignored (presence of key is sufficient) */
         referenced_by_meme_tag__load?: string;
         /** @description SQL = comparison */
         id__eq?: string;
@@ -1547,6 +2837,38 @@ export interface operations {
         /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
         metadata_version__asc?: string;
         /** @description SQL = comparison */
+        detection_status__eq?: string;
+        /** @description SQL != comparison */
+        detection_status__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_status__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_status__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_status__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_status__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_status__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_status__notin?: string;
+        /** @description SQL @> comparison */
+        detection_status__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_status__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_status__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_status__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_status__asc?: string;
+        /** @description SQL = comparison */
         ai_worker_claimed_until__eq?: string;
         /** @description SQL != comparison */
         ai_worker_claimed_until__ne?: string;
@@ -1578,6 +2900,46 @@ export interface operations {
         ai_worker_claimed_until__desc?: string;
         /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
         ai_worker_claimed_until__asc?: string;
+        /** @description SQL = comparison */
+        detection_worker_claimed_until__eq?: string;
+        /** @description SQL != comparison */
+        detection_worker_claimed_until__ne?: string;
+        /** @description SQL > comparison, may not work with all column types */
+        detection_worker_claimed_until__gt?: string;
+        /** @description SQL >= comparison, may not work with all column types */
+        detection_worker_claimed_until__gte?: string;
+        /** @description SQL < comparison, may not work with all column types */
+        detection_worker_claimed_until__lt?: string;
+        /** @description SQL <= comparison, may not work with all column types */
+        detection_worker_claimed_until__lte?: string;
+        /** @description SQL IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__in?: string;
+        /** @description SQL NOT IN comparison, permits comma-separated values */
+        detection_worker_claimed_until__notin?: string;
+        /** @description SQL @> comparison */
+        detection_worker_claimed_until__contains?: string;
+        /** @description SQL NOT @> comparison */
+        detection_worker_claimed_until__notcontains?: string;
+        /** @description SQL LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__like?: string;
+        /** @description SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notlike?: string;
+        /** @description SQL ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__ilike?: string;
+        /** @description SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with % */
+        detection_worker_claimed_until__notilike?: string;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        detection_worker_claimed_until__asc?: string;
+        /** @description SQL @> comparison */
+        referenced_by_detection_meme_id_objects__contains?: unknown;
+        /** @description SQL NOT @> comparison */
+        referenced_by_detection_meme_id_objects__notcontains?: unknown;
+        /** @description SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__desc?: string;
+        /** @description SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient) */
+        referenced_by_detection_meme_id_objects__asc?: string;
         /** @description SQL @> comparison */
         referenced_by_meme_tag_meme_id_objects__contains?: unknown;
         /** @description SQL NOT @> comparison */
@@ -1803,6 +3165,50 @@ export interface operations {
         };
       };
       /** @description PostMemesAiWorkerClaim failure */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string[];
+            /** Format: int32 */
+            status: number;
+            success: boolean;
+          };
+        };
+      };
+    };
+  };
+  PostMemesDetectionWorkerClaim: {
+    parameters: {
+      query?: {
+        /** @description Query parameter depth */
+        depth?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Path parameter primaryKey */
+        primaryKey: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MemeDetectionWorkerClaimRequest"];
+      };
+    };
+    responses: {
+      /** @description PostMemesDetectionWorkerClaim success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResponseWithGenericOfMeme"];
+        };
+      };
+      /** @description PostMemesDetectionWorkerClaim failure */
       default: {
         headers: {
           [name: string]: unknown;

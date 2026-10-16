@@ -4,6 +4,18 @@ import type { components, paths } from "./api/api";
 const client = createClient<paths>({ baseUrl: "/" });
 
 export type GeneratedMeme = components["schemas"]["Meme"];
+
+type TimelineDetection = {
+  id: string;
+  label: string;
+  class_id: number;
+  confidence: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
 type TimelineMeme = {
   id: string;
   original_name: string;
@@ -12,7 +24,9 @@ type TimelineMeme = {
   description: string;
   description_status: string;
   description_generated: boolean;
+  detection_status: string;
   tags: string[];
+  detections: TimelineDetection[];
   created_at: string;
   updated_at: string;
   sort_order: number;
@@ -97,7 +111,20 @@ function toTimelineMeme(item: GeneratedMeme): TimelineMeme | null {
     description: item.description || "",
     description_status: item.description_status || "none",
     description_generated: item.description_generated === 1,
+    detection_status: item.detection_status || "none",
     tags,
+    detections: (item.referenced_by_detection_meme_id_objects || [])
+      .filter((detection) => Boolean(detection.id))
+      .map((detection) => ({
+        id: detection.id as string,
+        label: detection.label || "",
+        class_id: detection.class_id || 0,
+        confidence: detection.confidence || 0,
+        x1: detection.x1 || 0,
+        y1: detection.y1 || 0,
+        x2: detection.x2 || 0,
+        y2: detection.y2 || 0,
+      })),
     created_at: item.created_at || "",
     updated_at: item.updated_at || "",
     sort_order: item.sort_order || 0,
@@ -145,7 +172,9 @@ export async function fetchMeme(id: string): Promise<TimelineMeme> {
       description: "",
       description_status: "none",
       description_generated: false,
+      detection_status: "none",
       tags: [],
+      detections: [],
       created_at: "",
       updated_at: new Date().toISOString(),
       sort_order: 0,

@@ -28,6 +28,7 @@ type Meme struct {
 	Size                 int64    `json:"size"`
 	Description          string   `json:"description"`
 	DescriptionStatus    string   `json:"description_status"`
+	DetectionStatus      string   `json:"detection_status"`
 	DescriptionGenerated bool     `json:"description_generated"`
 	Tags                 []string `json:"tags"`
 	CreatedAt            string   `json:"created_at"`
@@ -45,6 +46,21 @@ type Meme struct {
 	// vision worker ignore existing metadata while retaining it for failure
 	// recovery until a replacement result is successfully persisted.
 	ForceRegenerate bool `json:"-"`
+	// Detections are the object-detection rows for this meme. Coordinates are
+	// normalized to 0..1 so an overlay scales with the rendered image without
+	// the client needing the natural image size.
+	Detections []Detection `json:"detections"`
+}
+
+type Detection struct {
+	ID         string  `json:"id"`
+	Label      string  `json:"label"`
+	ClassID    int64   `json:"class_id"`
+	Confidence float64 `json:"confidence"`
+	X1         float64 `json:"x1"`
+	Y1         float64 `json:"y1"`
+	X2         float64 `json:"x2"`
+	Y2         float64 `json:"y2"`
 }
 
 type ListResult struct {
@@ -93,14 +109,56 @@ func (s *Store) getTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Meme, error
 	if err != nil {
 		return Meme{}, fmt.Errorf("get meme: %w", err)
 	}
-	meme, err := s.fromGenerated(ctx, tx, object)
+	detections, err := s.detectionsForMemes(ctx, tx, []uuid.UUID{object.ID})
+	if err != nil {
+		return Meme{}, err
+	}
+	meme, err := s.fromGenerated(ctx, tx, object, detections[object.ID.String()])
 	if err != nil {
 		return Meme{}, err
 	}
 	return meme, nil
 }
 
-func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.Meme) (Meme, error) {
+// detectionsForMemes reads the whole page in one query. A per-meme read would
+// multiply with the page size, and the overlay is only useful when every meme
+// on the page carries its own rows.
+func (s *Store) detectionsForMemes(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[string][]Detection, error) {
+	objects, _, _, _, _, err := generated.SelectDetections(
+		ctx,
+		tx,
+		fmt.Sprintf("%s = ANY($1)", generated.DetectionTableMemeIDColumn),
+		nil,
+		nil,
+		nil,
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list detections: %w", err)
+	}
+	result := map[string][]Detection{}
+	for _, object := range objects {
+		key := object.MemeID.String()
+		result[key] = append(result[key], Detection{
+			ID:         object.ID.String(),
+			Label:      object.Label,
+			ClassID:    object.ClassID,
+			Confidence: object.Confidence,
+			X1:         object.X1,
+			Y1:         object.Y1,
+			X2:         object.X2,
+			Y2:         object.Y2,
+		})
+	}
+	for _, id := range ids {
+		if _, ok := result[id.String()]; !ok {
+			result[id.String()] = []Detection{}
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.Meme, detections []Detection) (Meme, error) {
 	tags, err := s.tagsForMeme(ctx, tx, object.ID)
 	if err != nil {
 		return Meme{}, err
@@ -113,6 +171,7 @@ func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.
 		Size:                 object.Size,
 		Description:          cleanStoredDescription(object.Description),
 		DescriptionStatus:    object.DescriptionStatus,
+		DetectionStatus:      object.DetectionStatus,
 		DescriptionGenerated: object.DescriptionGenerated != 0,
 		Tags:                 tags,
 		CreatedAt:            object.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -120,6 +179,7 @@ func (s *Store) fromGenerated(ctx context.Context, tx pgx.Tx, object *generated.
 		Deleted:              object.DeletedAt != nil,
 		SortOrder:            object.SortOrder,
 		MetadataVersion:      int(object.MetadataVersion),
+		Detections:           detections,
 	}, nil
 }
 
@@ -235,8 +295,12 @@ func (s *Store) List(ctx context.Context, limit int, cursor, tag string) (ListRe
 	}
 
 	memes := make([]Meme, 0, len(objects))
+	detections, err := s.detectionsForMemes(ctx, tx, objectIDs(objects))
+	if err != nil {
+		return ListResult{}, err
+	}
 	for _, object := range objects {
-		meme, convertErr := s.fromGenerated(ctx, tx, object)
+		meme, convertErr := s.fromGenerated(ctx, tx, object, detections[object.ID.String()])
 		if convertErr != nil {
 			return ListResult{}, convertErr
 		}
@@ -339,8 +403,12 @@ func (s *Store) ListChanged(ctx context.Context, limit int, updatedAfter, cursor
 	}
 
 	memes := make([]Meme, 0, len(objects))
+	detections, err := s.detectionsForMemes(ctx, tx, objectIDs(objects))
+	if err != nil {
+		return ListResult{}, err
+	}
 	for _, object := range objects {
-		meme, convertErr := s.fromGenerated(ctx, tx, object)
+		meme, convertErr := s.fromGenerated(ctx, tx, object, detections[object.ID.String()])
 		if convertErr != nil {
 			return ListResult{}, convertErr
 		}
@@ -435,6 +503,7 @@ func (s *Store) Create(ctx context.Context, meme Meme, tags []string) error {
 		Size:                 meme.Size,
 		Description:          meme.Description,
 		DescriptionStatus:    defaultString(meme.DescriptionStatus, "none"),
+		DetectionStatus:      defaultString(meme.DetectionStatus, "none"),
 		DescriptionGenerated: boolInt(meme.DescriptionGenerated),
 		SortOrder:            order,
 	}
@@ -557,6 +626,12 @@ func (s *Store) UpdateDescription(ctx context.Context, id, description, status s
 	})
 }
 
+func (s *Store) UpdateDetectionStatus(ctx context.Context, id, status string) error {
+	return s.updateMemeFields(ctx, id, map[string]any{
+		"detection_status": status,
+	})
+}
+
 func (s *Store) updateMemeFields(ctx context.Context, id string, fields map[string]any) error {
 	parsed, err := uuid.Parse(id)
 	if err != nil {
@@ -615,6 +690,60 @@ func (s *Store) Pending(ctx context.Context) ([]Meme, error) {
 	return s.listMetadata(ctx, "description_status = $1", "pending")
 }
 
+func (s *Store) PendingDetections(ctx context.Context) ([]Meme, error) {
+	return s.listMetadata(ctx, "detection_status = $1", "pending")
+}
+
+// ReplaceDetections rewrites a meme's rows in one transaction so a retry cannot
+// leave a half-applied set, and stamps the meme so the change shows up in the
+// poll delta.
+func (s *Store) ReplaceDetections(ctx context.Context, memeID string, detections []Detection, status string) error {
+	parsed, err := uuid.Parse(memeID)
+	if err != nil {
+		return ErrNotFound
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin detection replace: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	object, _, _, _, _, err := generated.SelectMeme(ctx, tx, "id = $1", parsed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	existing, _, _, _, _, err := generated.SelectDetections(ctx, tx, fmt.Sprintf("%s = $1", generated.DetectionTableMemeIDColumn), nil, nil, nil, parsed)
+	if err != nil {
+		return fmt.Errorf("find detections: %w", err)
+	}
+	for _, detection := range existing {
+		if err := detection.Delete(ctx, tx); err != nil {
+			return fmt.Errorf("delete detection: %w", err)
+		}
+	}
+	for _, detection := range detections {
+		row := &generated.Detection{
+			MemeID:     parsed,
+			Label:      detection.Label,
+			ClassID:    detection.ClassID,
+			Confidence: detection.Confidence,
+			X1:         detection.X1,
+			Y1:         detection.Y1,
+			X2:         detection.X2,
+			Y2:         detection.Y2,
+		}
+		if err := row.Insert(ctx, tx, false, false); err != nil {
+			return fmt.Errorf("insert detection: %w", err)
+		}
+	}
+	if err := object.UpdateFields(ctx, tx, map[string]any{"detection_status": status}); err != nil {
+		return fmt.Errorf("update detection status: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) AllMetadata(ctx context.Context) ([]Meme, error) {
 	return s.listMetadata(ctx, "", nil)
 }
@@ -631,8 +760,12 @@ func (s *Store) listMetadata(ctx context.Context, where string, values ...any) (
 		return nil, err
 	}
 	result := make([]Meme, 0, len(objects))
+	detections, err := s.detectionsForMemes(ctx, tx, objectIDs(objects))
+	if err != nil {
+		return nil, err
+	}
 	for _, object := range objects {
-		meme, err := s.fromGenerated(ctx, tx, object)
+		meme, err := s.fromGenerated(ctx, tx, object, detections[object.ID.String()])
 		if err != nil {
 			return nil, err
 		}
@@ -824,6 +957,14 @@ func ensureTag(ctx context.Context, tx pgx.Tx, name string) (*generated.Tag, err
 }
 
 func helperInt(value int) *int { return &value }
+
+func objectIDs(objects []*generated.Meme) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(objects))
+	for _, object := range objects {
+		ids = append(ids, object.ID)
+	}
+	return ids
+}
 
 func boolInt(value bool) int64 {
 	if value {

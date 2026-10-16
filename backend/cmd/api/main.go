@@ -12,6 +12,7 @@ import (
 	"github.com/initialed85/djangolang/pkg/config"
 	internalconfig "github.com/initialed85/membrary/backend/internal/config"
 	"github.com/initialed85/membrary/backend/internal/describe"
+	"github.com/initialed85/membrary/backend/internal/detect"
 	"github.com/initialed85/membrary/backend/internal/httpapi"
 	"github.com/initialed85/membrary/backend/internal/store"
 	"github.com/initialed85/membrary/backend/pkg/api"
@@ -29,14 +30,16 @@ func addCustomHandlers(r chi.Router, db *pgxpool.Pool, _ *redis.Pool) error {
 	logger := slog.Default()
 	generator := describe.New(cfg.AIBaseURL, cfg.AIModel, cfg.AIAPIKey, dataStore, cfg.ReprocessExisting, cfg.AIWorkers, logger)
 	generator.Start(context.Background())
-	compatibilityAPI := httpapi.New(dataStore, generator, cfg.MediaDir, cfg.MaxUploadSize, cfg.CORSOrigin, logger)
+	worker := detect.New(cfg.DetectionBaseURL, cfg.DetectionConf, dataStore, cfg.DetectionWorkers, logger)
+	worker.Start(context.Background())
+	compatibilityAPI := httpapi.New(dataStore, generator, worker, cfg.MediaDir, cfg.MaxUploadSize, cfg.CORSOrigin, logger)
 	compatibilityAPI.Routes(r)
 	return nil
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("first argument must be command (one of 'dump-config', 'dump-openapi-json', 'dump-openapi-yaml' or 'serve')")
+		log.Fatal("first argument must be command (one of 'dump-config', 'dump-openapi-json', 'dump-openapi-yaml', 'reprocess-detections' or 'serve')")
 	}
 
 	command := strings.TrimSpace(strings.ToLower(os.Args[1]))
@@ -47,9 +50,50 @@ func main() {
 		api.RunDumpOpenAPIJSON()
 	case "dump-openapi-yaml":
 		api.RunDumpOpenAPIYAML()
+	case "reprocess-detections":
+		runReprocessDetections()
 	case "serve":
 		api.RunServeWithEnvironment(nil, nil, addCustomHandlers)
 	default:
 		log.Fatalf("unknown command %q", command)
+	}
+}
+
+// runReprocessDetections walks every meme once and re-runs detection for it.
+func runReprocessDetections() {
+	cfg := internalconfig.Load()
+	if cfg.DetectionBaseURL == "" {
+		log.Fatal("DETECTION_BASE_URL is required")
+	}
+
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, config.GetDSN())
+	if err != nil {
+		log.Fatalf("connect to postgres failed: %v", err)
+	}
+	defer db.Close()
+
+	dataStore := store.New(db)
+	worker := detect.New(cfg.DetectionBaseURL, cfg.DetectionConf, dataStore, 1, slog.Default())
+
+	cursor := ""
+	seen := 0
+	for {
+		result, err := dataStore.List(ctx, 100, cursor, "")
+		if err != nil {
+			log.Fatalf("list memes failed: %v", err)
+		}
+		for _, meme := range result.Memes {
+			seen++
+			if meme.Deleted {
+				continue
+			}
+			worker.ProcessOne(ctx, meme)
+		}
+		if result.NextCursor == "" {
+			log.Printf("reprocess detections complete: seen=%d", seen)
+			return
+		}
+		cursor = result.NextCursor
 	}
 }

@@ -16,6 +16,9 @@ type Config struct {
 	AIWorkers         int
 	ReprocessExisting bool
 	CORSOrigin        string
+	DetectionBaseURL  string
+	DetectionConf     float64
+	DetectionWorkers  int
 }
 
 func Load() Config {
@@ -30,6 +33,9 @@ func Load() Config {
 		AIWorkers:         int(envInt64("AI_WORKERS", 1)),
 		ReprocessExisting: envBool("AI_REPROCESS_EXISTING"),
 		CORSOrigin:        env("CORS_ORIGIN", ""),
+		DetectionBaseURL:  strings.TrimRight(env("DETECTION_BASE_URL", ""), "/"),
+		DetectionConf:     envFloat("DETECTION_CONF", 0.25),
+		DetectionWorkers:  int(envInt64("DETECTION_WORKERS", 1)),
 	}
 }
 
@@ -59,6 +65,14 @@ func envFirstDefault(first, second, fallback string) string {
 func envBool(name string) bool {
 	value, err := strconv.ParseBool(os.Getenv(name))
 	return err == nil && value
+}
+
+func envFloat(name string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(os.Getenv(name), 64)
+	if err != nil || value <= 0 || value > 1 {
+		return fallback
+	}
+	return value
 }
 
 func envInt64(name string, fallback int64) int64 {

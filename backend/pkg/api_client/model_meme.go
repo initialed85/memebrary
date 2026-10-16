@@ -26,11 +26,14 @@ type Meme struct {
 	Description *string `json:"description,omitempty"`
 	DescriptionGenerated *int64 `json:"description_generated,omitempty"`
 	DescriptionStatus *string `json:"description_status,omitempty"`
+	DetectionStatus *string `json:"detection_status,omitempty"`
+	DetectionWorkerClaimedUntil *time.Time `json:"detection_worker_claimed_until,omitempty"`
 	Filename *string `json:"filename,omitempty"`
 	Id *string `json:"id,omitempty"`
 	MetadataVersion *int64 `json:"metadata_version,omitempty"`
 	MimeType *string `json:"mime_type,omitempty"`
 	OriginalName *string `json:"original_name,omitempty"`
+	ReferencedByDetectionMemeIdObjects []Detection `json:"referenced_by_detection_meme_id_objects,omitempty"`
 	ReferencedByMemeTagMemeIdObjects []MemeTag `json:"referenced_by_meme_tag_meme_id_objects,omitempty"`
 	Size *int64 `json:"size,omitempty"`
 	SortOrder *int64 `json:"sort_order,omitempty"`
@@ -246,6 +249,70 @@ func (o *Meme) SetDescriptionStatus(v string) {
 	o.DescriptionStatus = &v
 }
 
+// GetDetectionStatus returns the DetectionStatus field value if set, zero value otherwise.
+func (o *Meme) GetDetectionStatus() string {
+	if o == nil || IsNil(o.DetectionStatus) {
+		var ret string
+		return ret
+	}
+	return *o.DetectionStatus
+}
+
+// GetDetectionStatusOk returns a tuple with the DetectionStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Meme) GetDetectionStatusOk() (*string, bool) {
+	if o == nil || IsNil(o.DetectionStatus) {
+		return nil, false
+	}
+	return o.DetectionStatus, true
+}
+
+// HasDetectionStatus returns a boolean if a field has been set.
+func (o *Meme) HasDetectionStatus() bool {
+	if o != nil && !IsNil(o.DetectionStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetDetectionStatus gets a reference to the given string and assigns it to the DetectionStatus field.
+func (o *Meme) SetDetectionStatus(v string) {
+	o.DetectionStatus = &v
+}
+
+// GetDetectionWorkerClaimedUntil returns the DetectionWorkerClaimedUntil field value if set, zero value otherwise.
+func (o *Meme) GetDetectionWorkerClaimedUntil() time.Time {
+	if o == nil || IsNil(o.DetectionWorkerClaimedUntil) {
+		var ret time.Time
+		return ret
+	}
+	return *o.DetectionWorkerClaimedUntil
+}
+
+// GetDetectionWorkerClaimedUntilOk returns a tuple with the DetectionWorkerClaimedUntil field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Meme) GetDetectionWorkerClaimedUntilOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.DetectionWorkerClaimedUntil) {
+		return nil, false
+	}
+	return o.DetectionWorkerClaimedUntil, true
+}
+
+// HasDetectionWorkerClaimedUntil returns a boolean if a field has been set.
+func (o *Meme) HasDetectionWorkerClaimedUntil() bool {
+	if o != nil && !IsNil(o.DetectionWorkerClaimedUntil) {
+		return true
+	}
+
+	return false
+}
+
+// SetDetectionWorkerClaimedUntil gets a reference to the given time.Time and assigns it to the DetectionWorkerClaimedUntil field.
+func (o *Meme) SetDetectionWorkerClaimedUntil(v time.Time) {
+	o.DetectionWorkerClaimedUntil = &v
+}
+
 // GetFilename returns the Filename field value if set, zero value otherwise.
 func (o *Meme) GetFilename() string {
 	if o == nil || IsNil(o.Filename) {
@@ -406,6 +473,38 @@ func (o *Meme) SetOriginalName(v string) {
 	o.OriginalName = &v
 }
 
+// GetReferencedByDetectionMemeIdObjects returns the ReferencedByDetectionMemeIdObjects field value if set, zero value otherwise.
+func (o *Meme) GetReferencedByDetectionMemeIdObjects() []Detection {
+	if o == nil || IsNil(o.ReferencedByDetectionMemeIdObjects) {
+		var ret []Detection
+		return ret
+	}
+	return o.ReferencedByDetectionMemeIdObjects
+}
+
+// GetReferencedByDetectionMemeIdObjectsOk returns a tuple with the ReferencedByDetectionMemeIdObjects field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Meme) GetReferencedByDetectionMemeIdObjectsOk() ([]Detection, bool) {
+	if o == nil || IsNil(o.ReferencedByDetectionMemeIdObjects) {
+		return nil, false
+	}
+	return o.ReferencedByDetectionMemeIdObjects, true
+}
+
+// HasReferencedByDetectionMemeIdObjects returns a boolean if a field has been set.
+func (o *Meme) HasReferencedByDetectionMemeIdObjects() bool {
+	if o != nil && !IsNil(o.ReferencedByDetectionMemeIdObjects) {
+		return true
+	}
+
+	return false
+}
+
+// SetReferencedByDetectionMemeIdObjects gets a reference to the given []Detection and assigns it to the ReferencedByDetectionMemeIdObjects field.
+func (o *Meme) SetReferencedByDetectionMemeIdObjects(v []Detection) {
+	o.ReferencedByDetectionMemeIdObjects = v
+}
+
 // GetReferencedByMemeTagMemeIdObjects returns the ReferencedByMemeTagMemeIdObjects field value if set, zero value otherwise.
 func (o *Meme) GetReferencedByMemeTagMemeIdObjects() []MemeTag {
 	if o == nil || IsNil(o.ReferencedByMemeTagMemeIdObjects) {
@@ -562,6 +661,12 @@ func (o Meme) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.DescriptionStatus) {
 		toSerialize["description_status"] = o.DescriptionStatus
 	}
+	if !IsNil(o.DetectionStatus) {
+		toSerialize["detection_status"] = o.DetectionStatus
+	}
+	if !IsNil(o.DetectionWorkerClaimedUntil) {
+		toSerialize["detection_worker_claimed_until"] = o.DetectionWorkerClaimedUntil
+	}
 	if !IsNil(o.Filename) {
 		toSerialize["filename"] = o.Filename
 	}
@@ -576,6 +681,9 @@ func (o Meme) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.OriginalName) {
 		toSerialize["original_name"] = o.OriginalName
+	}
+	if !IsNil(o.ReferencedByDetectionMemeIdObjects) {
+		toSerialize["referenced_by_detection_meme_id_objects"] = o.ReferencedByDetectionMemeIdObjects
 	}
 	if !IsNil(o.ReferencedByMemeTagMemeIdObjects) {
 		toSerialize["referenced_by_meme_tag_meme_id_objects"] = o.ReferencedByMemeTagMemeIdObjects

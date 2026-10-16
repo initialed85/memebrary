@@ -23,6 +23,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/initialed85/membrary/backend/internal/describe"
+	"github.com/initialed85/membrary/backend/internal/detect"
 	"github.com/initialed85/membrary/backend/internal/store"
 )
 
@@ -52,17 +53,18 @@ func (w *loggingResponseWriter) Write(body []byte) (int, error) {
 type API struct {
 	store      *store.Store
 	generator  *describe.Generator
+	worker     *detect.Worker
 	mediaDir   string
 	maxUpload  int64
 	corsOrigin string
 	logger     *slog.Logger
 }
 
-func New(dataStore *store.Store, generator *describe.Generator, mediaDir string, maxUpload int64, corsOrigin string, logger *slog.Logger) *API {
+func New(dataStore *store.Store, generator *describe.Generator, worker *detect.Worker, mediaDir string, maxUpload int64, corsOrigin string, logger *slog.Logger) *API {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &API{store: dataStore, generator: generator, mediaDir: mediaDir, maxUpload: maxUpload, corsOrigin: corsOrigin, logger: logger}
+	return &API{store: dataStore, generator: generator, worker: worker, mediaDir: mediaDir, maxUpload: maxUpload, corsOrigin: corsOrigin, logger: logger}
 }
 
 // Routes mounts the compatibility API beneath djangolang's /api/custom route.
@@ -226,6 +228,10 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 		// even when the uploader supplied their own tags/description.
 		status = "pending"
 	}
+	detectionStatus := "none"
+	if a.worker.Enabled() {
+		detectionStatus = "pending"
+	}
 	meme := store.Meme{
 		ID:                id,
 		Filename:          finalPath,
@@ -234,6 +240,7 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 		Size:              int64(len(data)),
 		Description:       description,
 		DescriptionStatus: status,
+		DetectionStatus:   detectionStatus,
 		Tags:              tags,
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -245,9 +252,12 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	a.logger.Info("meme uploaded", "id", meme.ID, "mime", mimeType, "bytes", len(data), "tags", len(tags), "description_present", description != "", "vision_pending", status == "pending")
+	a.logger.Info("meme uploaded", "id", meme.ID, "mime", mimeType, "bytes", len(data), "tags", len(tags), "description_present", description != "", "vision_pending", status == "pending", "detection_pending", detectionStatus == "pending")
 	if status == "pending" {
 		a.generator.Enqueue(meme)
+	}
+	if detectionStatus == "pending" {
+		a.worker.Enqueue(meme)
 	}
 	created, err := a.store.Get(r.Context(), meme.ID)
 	if err != nil {
@@ -308,18 +318,35 @@ func (a *API) memeAction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if !a.generator.Enabled() {
-		badRequest(w, "AI descriptions are not configured")
+	if !a.generator.Enabled() && !a.worker.Enabled() {
+		badRequest(w, "no regeneration workers are configured")
 		return
 	}
-	if err := a.store.UpdateDescription(r.Context(), meme.ID, meme.Description, "pending", meme.DescriptionGenerated); err != nil {
+	if a.generator.Enabled() {
+		if err := a.store.UpdateDescription(r.Context(), meme.ID, meme.Description, "pending", meme.DescriptionGenerated); err != nil {
+			serverError(w, err)
+			return
+		}
+		meme.DescriptionStatus = "pending"
+		meme.ForceRegenerate = true
+		a.generator.Enqueue(meme)
+	}
+	if a.worker.Enabled() {
+		if err := a.store.UpdateDetectionStatus(r.Context(), meme.ID, "pending"); err != nil {
+			serverError(w, err)
+			return
+		}
+		meme.DetectionStatus = "pending"
+		a.worker.Enqueue(meme)
+	}
+	// The response has to carry the post-update `updated_at`, otherwise the client
+	// treats it as a stale delta and never shows the pending state.
+	refreshed, err := a.store.Get(r.Context(), meme.ID)
+	if err != nil {
 		serverError(w, err)
 		return
 	}
-	meme.DescriptionStatus = "pending"
-	meme.ForceRegenerate = true
-	a.generator.Enqueue(meme)
-	writeJSON(w, http.StatusAccepted, meme)
+	writeJSON(w, http.StatusAccepted, refreshed)
 }
 
 func (a *API) removeTag(w http.ResponseWriter, r *http.Request, id, encodedTag string) {

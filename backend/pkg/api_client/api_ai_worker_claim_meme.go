@@ -30,6 +30,7 @@ type ApiPostAiWorkerClaimMemesRequest struct {
 	limit *int32
 	offset *int32
 	depth *int32
+	referencedByDetectionLoad *string
 	referencedByMemeTagLoad *string
 	idEq *string
 	idNe *string
@@ -223,6 +224,22 @@ type ApiPostAiWorkerClaimMemesRequest struct {
 	metadataVersionNotcontains *int64
 	metadataVersionDesc *string
 	metadataVersionAsc *string
+	detectionStatusEq *string
+	detectionStatusNe *string
+	detectionStatusGt *string
+	detectionStatusGte *string
+	detectionStatusLt *string
+	detectionStatusLte *string
+	detectionStatusIn *string
+	detectionStatusNotin *string
+	detectionStatusContains *string
+	detectionStatusNotcontains *string
+	detectionStatusLike *string
+	detectionStatusNotlike *string
+	detectionStatusIlike *string
+	detectionStatusNotilike *string
+	detectionStatusDesc *string
+	detectionStatusAsc *string
 	aiWorkerClaimedUntilEq *time.Time
 	aiWorkerClaimedUntilNe *time.Time
 	aiWorkerClaimedUntilGt *time.Time
@@ -239,6 +256,26 @@ type ApiPostAiWorkerClaimMemesRequest struct {
 	aiWorkerClaimedUntilNotilike *time.Time
 	aiWorkerClaimedUntilDesc *string
 	aiWorkerClaimedUntilAsc *string
+	detectionWorkerClaimedUntilEq *time.Time
+	detectionWorkerClaimedUntilNe *time.Time
+	detectionWorkerClaimedUntilGt *time.Time
+	detectionWorkerClaimedUntilGte *time.Time
+	detectionWorkerClaimedUntilLt *time.Time
+	detectionWorkerClaimedUntilLte *time.Time
+	detectionWorkerClaimedUntilIn *time.Time
+	detectionWorkerClaimedUntilNotin *time.Time
+	detectionWorkerClaimedUntilContains *time.Time
+	detectionWorkerClaimedUntilNotcontains *time.Time
+	detectionWorkerClaimedUntilLike *time.Time
+	detectionWorkerClaimedUntilNotlike *time.Time
+	detectionWorkerClaimedUntilIlike *time.Time
+	detectionWorkerClaimedUntilNotilike *time.Time
+	detectionWorkerClaimedUntilDesc *string
+	detectionWorkerClaimedUntilAsc *string
+	referencedByDetectionMemeIdObjectsContains *interface{}
+	referencedByDetectionMemeIdObjectsNotcontains *interface{}
+	referencedByDetectionMemeIdObjectsDesc *string
+	referencedByDetectionMemeIdObjectsAsc *string
 	referencedByMemeTagMemeIdObjectsContains *interface{}
 	referencedByMemeTagMemeIdObjectsNotcontains *interface{}
 	referencedByMemeTagMemeIdObjectsDesc *string
@@ -265,6 +302,12 @@ func (r ApiPostAiWorkerClaimMemesRequest) Offset(offset int32) ApiPostAiWorkerCl
 // Max recursion depth for loading foreign objects; default &#x3D; 1  (0 &#x3D; recurse until graph cycle detected, 1 &#x3D; this object only, 2 &#x3D; this object + neighbours, 3 &#x3D; this object + neighbours + their neighbours... etc)
 func (r ApiPostAiWorkerClaimMemesRequest) Depth(depth int32) ApiPostAiWorkerClaimMemesRequest {
 	r.depth = &depth
+	return r
+}
+
+// load the given indirectly related objects, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByDetectionLoad(referencedByDetectionLoad string) ApiPostAiWorkerClaimMemesRequest {
+	r.referencedByDetectionLoad = &referencedByDetectionLoad
 	return r
 }
 
@@ -1427,6 +1470,102 @@ func (r ApiPostAiWorkerClaimMemesRequest) MetadataVersionAsc(metadataVersionAsc 
 }
 
 // SQL &#x3D; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusEq(detectionStatusEq string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusEq = &detectionStatusEq
+	return r
+}
+
+// SQL !&#x3D; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusNe(detectionStatusNe string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusNe = &detectionStatusNe
+	return r
+}
+
+// SQL &gt; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusGt(detectionStatusGt string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusGt = &detectionStatusGt
+	return r
+}
+
+// SQL &gt;&#x3D; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusGte(detectionStatusGte string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusGte = &detectionStatusGte
+	return r
+}
+
+// SQL &lt; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusLt(detectionStatusLt string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusLt = &detectionStatusLt
+	return r
+}
+
+// SQL &lt;&#x3D; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusLte(detectionStatusLte string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusLte = &detectionStatusLte
+	return r
+}
+
+// SQL IN comparison, permits comma-separated values
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusIn(detectionStatusIn string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusIn = &detectionStatusIn
+	return r
+}
+
+// SQL NOT IN comparison, permits comma-separated values
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusNotin(detectionStatusNotin string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusNotin = &detectionStatusNotin
+	return r
+}
+
+// SQL @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusContains(detectionStatusContains string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusContains = &detectionStatusContains
+	return r
+}
+
+// SQL NOT @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusNotcontains(detectionStatusNotcontains string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusNotcontains = &detectionStatusNotcontains
+	return r
+}
+
+// SQL LIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusLike(detectionStatusLike string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusLike = &detectionStatusLike
+	return r
+}
+
+// SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusNotlike(detectionStatusNotlike string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusNotlike = &detectionStatusNotlike
+	return r
+}
+
+// SQL ILIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusIlike(detectionStatusIlike string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusIlike = &detectionStatusIlike
+	return r
+}
+
+// SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusNotilike(detectionStatusNotilike string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusNotilike = &detectionStatusNotilike
+	return r
+}
+
+// SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusDesc(detectionStatusDesc string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusDesc = &detectionStatusDesc
+	return r
+}
+
+// SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionStatusAsc(detectionStatusAsc string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionStatusAsc = &detectionStatusAsc
+	return r
+}
+
+// SQL &#x3D; comparison
 func (r ApiPostAiWorkerClaimMemesRequest) AiWorkerClaimedUntilEq(aiWorkerClaimedUntilEq time.Time) ApiPostAiWorkerClaimMemesRequest {
 	r.aiWorkerClaimedUntilEq = &aiWorkerClaimedUntilEq
 	return r
@@ -1522,6 +1661,126 @@ func (r ApiPostAiWorkerClaimMemesRequest) AiWorkerClaimedUntilAsc(aiWorkerClaime
 	return r
 }
 
+// SQL &#x3D; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilEq(detectionWorkerClaimedUntilEq time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilEq = &detectionWorkerClaimedUntilEq
+	return r
+}
+
+// SQL !&#x3D; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilNe(detectionWorkerClaimedUntilNe time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilNe = &detectionWorkerClaimedUntilNe
+	return r
+}
+
+// SQL &gt; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilGt(detectionWorkerClaimedUntilGt time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilGt = &detectionWorkerClaimedUntilGt
+	return r
+}
+
+// SQL &gt;&#x3D; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilGte(detectionWorkerClaimedUntilGte time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilGte = &detectionWorkerClaimedUntilGte
+	return r
+}
+
+// SQL &lt; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilLt(detectionWorkerClaimedUntilLt time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilLt = &detectionWorkerClaimedUntilLt
+	return r
+}
+
+// SQL &lt;&#x3D; comparison, may not work with all column types
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilLte(detectionWorkerClaimedUntilLte time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilLte = &detectionWorkerClaimedUntilLte
+	return r
+}
+
+// SQL IN comparison, permits comma-separated values
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilIn(detectionWorkerClaimedUntilIn time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilIn = &detectionWorkerClaimedUntilIn
+	return r
+}
+
+// SQL NOT IN comparison, permits comma-separated values
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilNotin(detectionWorkerClaimedUntilNotin time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilNotin = &detectionWorkerClaimedUntilNotin
+	return r
+}
+
+// SQL @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilContains(detectionWorkerClaimedUntilContains time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilContains = &detectionWorkerClaimedUntilContains
+	return r
+}
+
+// SQL NOT @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilNotcontains(detectionWorkerClaimedUntilNotcontains time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilNotcontains = &detectionWorkerClaimedUntilNotcontains
+	return r
+}
+
+// SQL LIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilLike(detectionWorkerClaimedUntilLike time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilLike = &detectionWorkerClaimedUntilLike
+	return r
+}
+
+// SQL NOT LIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilNotlike(detectionWorkerClaimedUntilNotlike time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilNotlike = &detectionWorkerClaimedUntilNotlike
+	return r
+}
+
+// SQL ILIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilIlike(detectionWorkerClaimedUntilIlike time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilIlike = &detectionWorkerClaimedUntilIlike
+	return r
+}
+
+// SQL NOT ILIKE comparison, value is implicitly prefixed and suffixed with %
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilNotilike(detectionWorkerClaimedUntilNotilike time.Time) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilNotilike = &detectionWorkerClaimedUntilNotilike
+	return r
+}
+
+// SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilDesc(detectionWorkerClaimedUntilDesc string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilDesc = &detectionWorkerClaimedUntilDesc
+	return r
+}
+
+// SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) DetectionWorkerClaimedUntilAsc(detectionWorkerClaimedUntilAsc string) ApiPostAiWorkerClaimMemesRequest {
+	r.detectionWorkerClaimedUntilAsc = &detectionWorkerClaimedUntilAsc
+	return r
+}
+
+// SQL @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByDetectionMemeIdObjectsContains(referencedByDetectionMemeIdObjectsContains interface{}) ApiPostAiWorkerClaimMemesRequest {
+	r.referencedByDetectionMemeIdObjectsContains = &referencedByDetectionMemeIdObjectsContains
+	return r
+}
+
+// SQL NOT @&gt; comparison
+func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByDetectionMemeIdObjectsNotcontains(referencedByDetectionMemeIdObjectsNotcontains interface{}) ApiPostAiWorkerClaimMemesRequest {
+	r.referencedByDetectionMemeIdObjectsNotcontains = &referencedByDetectionMemeIdObjectsNotcontains
+	return r
+}
+
+// SQL ORDER BY _ DESC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByDetectionMemeIdObjectsDesc(referencedByDetectionMemeIdObjectsDesc string) ApiPostAiWorkerClaimMemesRequest {
+	r.referencedByDetectionMemeIdObjectsDesc = &referencedByDetectionMemeIdObjectsDesc
+	return r
+}
+
+// SQL ORDER BY _ ASC clause, value is ignored (presence of key is sufficient)
+func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByDetectionMemeIdObjectsAsc(referencedByDetectionMemeIdObjectsAsc string) ApiPostAiWorkerClaimMemesRequest {
+	r.referencedByDetectionMemeIdObjectsAsc = &referencedByDetectionMemeIdObjectsAsc
+	return r
+}
+
 // SQL @&gt; comparison
 func (r ApiPostAiWorkerClaimMemesRequest) ReferencedByMemeTagMemeIdObjectsContains(referencedByMemeTagMemeIdObjectsContains interface{}) ApiPostAiWorkerClaimMemesRequest {
 	r.referencedByMemeTagMemeIdObjectsContains = &referencedByMemeTagMemeIdObjectsContains
@@ -1595,6 +1854,9 @@ func (a *AiWorkerClaimMemeAPIService) PostAiWorkerClaimMemesExecute(r ApiPostAiW
 	}
 	if r.depth != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "depth", r.depth, "form", "")
+	}
+	if r.referencedByDetectionLoad != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_detection__load", r.referencedByDetectionLoad, "form", "")
 	}
 	if r.referencedByMemeTagLoad != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_meme_tag__load", r.referencedByMemeTagLoad, "form", "")
@@ -2175,6 +2437,54 @@ func (a *AiWorkerClaimMemeAPIService) PostAiWorkerClaimMemesExecute(r ApiPostAiW
 	if r.metadataVersionAsc != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "metadata_version__asc", r.metadataVersionAsc, "form", "")
 	}
+	if r.detectionStatusEq != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__eq", r.detectionStatusEq, "form", "")
+	}
+	if r.detectionStatusNe != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__ne", r.detectionStatusNe, "form", "")
+	}
+	if r.detectionStatusGt != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__gt", r.detectionStatusGt, "form", "")
+	}
+	if r.detectionStatusGte != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__gte", r.detectionStatusGte, "form", "")
+	}
+	if r.detectionStatusLt != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__lt", r.detectionStatusLt, "form", "")
+	}
+	if r.detectionStatusLte != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__lte", r.detectionStatusLte, "form", "")
+	}
+	if r.detectionStatusIn != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__in", r.detectionStatusIn, "form", "")
+	}
+	if r.detectionStatusNotin != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__notin", r.detectionStatusNotin, "form", "")
+	}
+	if r.detectionStatusContains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__contains", r.detectionStatusContains, "form", "")
+	}
+	if r.detectionStatusNotcontains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__notcontains", r.detectionStatusNotcontains, "form", "")
+	}
+	if r.detectionStatusLike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__like", r.detectionStatusLike, "form", "")
+	}
+	if r.detectionStatusNotlike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__notlike", r.detectionStatusNotlike, "form", "")
+	}
+	if r.detectionStatusIlike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__ilike", r.detectionStatusIlike, "form", "")
+	}
+	if r.detectionStatusNotilike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__notilike", r.detectionStatusNotilike, "form", "")
+	}
+	if r.detectionStatusDesc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__desc", r.detectionStatusDesc, "form", "")
+	}
+	if r.detectionStatusAsc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_status__asc", r.detectionStatusAsc, "form", "")
+	}
 	if r.aiWorkerClaimedUntilEq != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "ai_worker_claimed_until__eq", r.aiWorkerClaimedUntilEq, "form", "")
 	}
@@ -2222,6 +2532,66 @@ func (a *AiWorkerClaimMemeAPIService) PostAiWorkerClaimMemesExecute(r ApiPostAiW
 	}
 	if r.aiWorkerClaimedUntilAsc != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "ai_worker_claimed_until__asc", r.aiWorkerClaimedUntilAsc, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilEq != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__eq", r.detectionWorkerClaimedUntilEq, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilNe != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__ne", r.detectionWorkerClaimedUntilNe, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilGt != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__gt", r.detectionWorkerClaimedUntilGt, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilGte != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__gte", r.detectionWorkerClaimedUntilGte, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilLt != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__lt", r.detectionWorkerClaimedUntilLt, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilLte != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__lte", r.detectionWorkerClaimedUntilLte, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilIn != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__in", r.detectionWorkerClaimedUntilIn, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilNotin != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__notin", r.detectionWorkerClaimedUntilNotin, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilContains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__contains", r.detectionWorkerClaimedUntilContains, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilNotcontains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__notcontains", r.detectionWorkerClaimedUntilNotcontains, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilLike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__like", r.detectionWorkerClaimedUntilLike, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilNotlike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__notlike", r.detectionWorkerClaimedUntilNotlike, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilIlike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__ilike", r.detectionWorkerClaimedUntilIlike, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilNotilike != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__notilike", r.detectionWorkerClaimedUntilNotilike, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilDesc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__desc", r.detectionWorkerClaimedUntilDesc, "form", "")
+	}
+	if r.detectionWorkerClaimedUntilAsc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "detection_worker_claimed_until__asc", r.detectionWorkerClaimedUntilAsc, "form", "")
+	}
+	if r.referencedByDetectionMemeIdObjectsContains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_detection_meme_id_objects__contains", r.referencedByDetectionMemeIdObjectsContains, "form", "")
+	}
+	if r.referencedByDetectionMemeIdObjectsNotcontains != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_detection_meme_id_objects__notcontains", r.referencedByDetectionMemeIdObjectsNotcontains, "form", "")
+	}
+	if r.referencedByDetectionMemeIdObjectsDesc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_detection_meme_id_objects__desc", r.referencedByDetectionMemeIdObjectsDesc, "form", "")
+	}
+	if r.referencedByDetectionMemeIdObjectsAsc != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_detection_meme_id_objects__asc", r.referencedByDetectionMemeIdObjectsAsc, "form", "")
 	}
 	if r.referencedByMemeTagMemeIdObjectsContains != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "referenced_by_meme_tag_meme_id_objects__contains", r.referencedByMemeTagMemeIdObjectsContains, "form", "")

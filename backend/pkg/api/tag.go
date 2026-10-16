@@ -43,7 +43,7 @@ var TagTable = "tag"
 
 var TagTableWithSchema = fmt.Sprintf("%s.%s", schema, TagTable)
 
-var TagTableNamespaceID int32 = 1337 + 4
+var TagTableNamespaceID int32 = 1337 + 5
 
 var (
 	TagTableIDColumn        = "id"
@@ -503,6 +503,167 @@ func (m *Tag) Update(ctx context.Context, tx pgx.Tx, setZeroValues bool, forceSe
 	}
 
 	err = m.Reload(ctx, tx, slices.Contains(forceSetValuesForFields, "deleted_at"))
+	if err != nil {
+		return fmt.Errorf("failed to reload after update")
+	}
+
+	return nil
+}
+func (m *Tag) UpdateField(ctx context.Context, tx pgx.Tx, fieldName string, value any) error {
+	var columnName string
+	switch fieldName {
+
+	case "id":
+		columnName = TagTableIDColumn
+
+	case "created_at":
+		columnName = TagTableCreatedAtColumn
+
+	case "updated_at":
+		columnName = TagTableUpdatedAtColumn
+
+	case "deleted_at":
+		columnName = TagTableDeletedAtColumn
+
+	case "name":
+		columnName = TagTableNameColumn
+	default:
+		return fmt.Errorf("unknown field name: %v", fieldName)
+	}
+
+	var columnValue any
+	var err error
+	switch columnName {
+
+	case TagTableIDColumn:
+		columnValue, err = types.FormatUUID(value)
+
+	case TagTableCreatedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case TagTableUpdatedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case TagTableDeletedAtColumn:
+		columnValue, err = types.FormatTime(value)
+
+	case TagTableNameColumn:
+		columnValue, err = types.FormatString(value)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to format value for %v; %v", columnName, err)
+	}
+
+	ctx, cleanup := query.WithQueryID(ctx)
+	defer cleanup()
+
+	ctx = query.WithMaxDepth(ctx, nil)
+
+	_, err = query.Update(
+		ctx,
+		tx,
+		TagTableWithSchema,
+		[]string{columnName},
+		fmt.Sprintf("%v = $$??", TagTablePrimaryKeyColumn),
+		[]string{TagTablePrimaryKeyColumn},
+		columnValue,
+		m.GetPrimaryKeyValue(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update field %v: %v", fieldName, err)
+	}
+
+	err = m.Reload(ctx, tx, false)
+	if err != nil {
+		return fmt.Errorf("failed to reload after update")
+	}
+
+	return nil
+}
+
+func (m *Tag) UpdateFields(ctx context.Context, tx pgx.Tx, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	fieldNames := make([]string, 0, len(fields))
+	for fieldName := range fields {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+
+	columns := make([]string, 0, len(fields))
+	values := make([]any, 0, len(fields)*2)
+
+	for _, fieldName := range fieldNames {
+		value := fields[fieldName]
+		var columnName string
+		switch fieldName {
+
+		case "id":
+			columnName = TagTableIDColumn
+
+		case "created_at":
+			columnName = TagTableCreatedAtColumn
+
+		case "updated_at":
+			columnName = TagTableUpdatedAtColumn
+
+		case "deleted_at":
+			columnName = TagTableDeletedAtColumn
+
+		case "name":
+			columnName = TagTableNameColumn
+		default:
+			return fmt.Errorf("unknown field name: %v", fieldName)
+		}
+
+		var columnValue any
+		var err error
+		switch columnName {
+
+		case TagTableIDColumn:
+			columnValue, err = types.FormatUUID(value)
+
+		case TagTableCreatedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case TagTableUpdatedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case TagTableDeletedAtColumn:
+			columnValue, err = types.FormatTime(value)
+
+		case TagTableNameColumn:
+			columnValue, err = types.FormatString(value)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to format value for %v; %v", columnName, err)
+		}
+
+		columns = append(columns, columnName)
+		values = append(values, columnValue)
+	}
+	values = append(values, m.GetPrimaryKeyValue())
+
+	ctx, cleanup := query.WithQueryID(ctx)
+	defer cleanup()
+
+	ctx = query.WithMaxDepth(ctx, nil)
+
+	_, err := query.Update(
+		ctx,
+		tx,
+		TagTableWithSchema,
+		columns,
+		fmt.Sprintf("%v = $$??", TagTablePrimaryKeyColumn),
+		[]string{TagTablePrimaryKeyColumn},
+		values...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update fields: %v", err)
+	}
+
+	err = m.Reload(ctx, tx, false)
 	if err != nil {
 		return fmt.Errorf("failed to reload after update")
 	}
@@ -1574,133 +1735,4 @@ func init() {
 		"/tags",
 		MutateRouterForTag,
 	)
-}
-func (m *Tag) UpdateField(ctx context.Context, tx pgx.Tx, fieldName string, value any) error {
-	var columnName string
-	switch fieldName {
-	case "id":
-		columnName = TagTableIDColumn
-	case "created_at":
-		columnName = TagTableCreatedAtColumn
-	case "updated_at":
-		columnName = TagTableUpdatedAtColumn
-	case "deleted_at":
-		columnName = TagTableDeletedAtColumn
-	case "name":
-		columnName = TagTableNameColumn
-
-	default:
-		return fmt.Errorf("unknown field name: %v", fieldName)
-	}
-	var columnValue any
-	var err error
-	switch columnName {
-	case TagTableIDColumn:
-		columnValue, err = types.FormatUUID(value)
-	case TagTableCreatedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case TagTableUpdatedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case TagTableDeletedAtColumn:
-		columnValue, err = types.FormatTime(value)
-	case TagTableNameColumn:
-		columnValue, err = types.FormatString(value)
-
-	}
-	if err != nil {
-		return fmt.Errorf("failed to format value for %v; %v", columnName, err)
-	}
-	ctx, cleanup := query.WithQueryID(ctx)
-	defer cleanup()
-	ctx = query.WithMaxDepth(ctx, nil)
-	_, err = query.Update(
-		ctx,
-		tx,
-		TagTableWithSchema,
-		[]string{columnName},
-		fmt.Sprintf("%v = $$??", TagTableIDColumn),
-		[]string{TagTableIDColumn},
-		columnValue,
-		m.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update field %v: %v", fieldName, err)
-	}
-	err = m.Reload(ctx, tx, false)
-	if err != nil {
-		return fmt.Errorf("failed to reload after update")
-	}
-	return nil
-}
-func (m *Tag) UpdateFields(ctx context.Context, tx pgx.Tx, fields map[string]any) error {
-	if len(fields) == 0 {
-		return nil
-	}
-	fieldNames := make([]string, 0, len(fields))
-	for fieldName := range fields {
-		fieldNames = append(fieldNames, fieldName)
-	}
-	sort.Strings(fieldNames)
-	columns := make([]string, 0, len(fields))
-	values := make([]any, 0, len(fields)*2)
-	for _, fieldName := range fieldNames {
-		value := fields[fieldName]
-		var columnName string
-		switch fieldName {
-		case "id":
-			columnName = TagTableIDColumn
-		case "created_at":
-			columnName = TagTableCreatedAtColumn
-		case "updated_at":
-			columnName = TagTableUpdatedAtColumn
-		case "deleted_at":
-			columnName = TagTableDeletedAtColumn
-		case "name":
-			columnName = TagTableNameColumn
-
-		default:
-			return fmt.Errorf("unknown field name: %v", fieldName)
-		}
-		var columnValue any
-		var err error
-		switch columnName {
-		case TagTableIDColumn:
-			columnValue, err = types.FormatUUID(value)
-		case TagTableCreatedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case TagTableUpdatedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case TagTableDeletedAtColumn:
-			columnValue, err = types.FormatTime(value)
-		case TagTableNameColumn:
-			columnValue, err = types.FormatString(value)
-
-		}
-		if err != nil {
-			return fmt.Errorf("failed to format value for %v; %v", columnName, err)
-		}
-		columns = append(columns, columnName)
-		values = append(values, columnValue)
-	}
-	values = append(values, m.ID)
-	ctx, cleanup := query.WithQueryID(ctx)
-	defer cleanup()
-	ctx = query.WithMaxDepth(ctx, nil)
-	_, err := query.Update(
-		ctx,
-		tx,
-		TagTableWithSchema,
-		columns,
-		fmt.Sprintf("%v = $$??", TagTableIDColumn),
-		[]string{TagTableIDColumn},
-		values...,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update fields: %v", err)
-	}
-	err = m.Reload(ctx, tx, false)
-	if err != nil {
-		return fmt.Errorf("failed to reload after update")
-	}
-	return nil
 }

@@ -27,6 +27,14 @@ Open <http://localhost:5173>. The frontend uses the generated OpenAPI TypeScript
 
 Set `AI_BASE_URL=` to disable vision metadata. `OPENAI_BASE_URL`, `AI_MODEL`, `OPENAI_MODEL`, and the corresponding API key aliases are also accepted.
 
+## Object detection
+
+Uploads are queued to the Coral YOLO service (`DETECTION_BASE_URL`, `DETECTION_CONF`, `DETECTION_WORKERS`) and each result is stored as a `detection` row with normalized `0..1` coordinates, so the overlay scales with the rendered image without the client measuring it. The viewer draws boxes and labels when the toggle is on; the toggle is off by default, persisted in `localStorage`, and the display threshold (`DETECTION_MIN_CONFIDENCE`) is a frontend concern — the worker stores everything above its inference threshold.
+
+TODO: animated GIFs are skipped (`detection_status = 'skipped'`) because Coral cannot decode them. The fix belongs in the Coral service: rasterize the first frame before inference, which then benefits every consumer of the device.
+
+Existing rows can be re-run one at a time with `./cmd/api/api reprocess-detections` (it walks the timeline in pages and calls Coral sequentially, since the device is single-threaded).
+
 ## Deployment
 
 `backend/build-tag-and-push.sh` builds and pushes the independently deployable images:

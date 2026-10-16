@@ -101,4 +101,18 @@ func Test_api_client_MemeAPIService(t *testing.T) {
 
 	})
 
+	t.Run("Test MemeAPIService PostMemesDetectionWorkerClaim", func(t *testing.T) {
+
+		t.Skip("skip test")  // remove to run test
+
+		var primaryKey string
+
+		resp, httpRes, err := apiClient.MemeAPI.PostMemesDetectionWorkerClaim(context.Background(), primaryKey).Execute()
+
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, 200, httpRes.StatusCode)
+
+	})
+
 }
