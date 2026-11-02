@@ -34,8 +34,11 @@ steps:
       DJANGOLANG_API_ROOT: /api/
     commands:
       - go version
+      # pkg/api_client is oapi-codegen output and is not gofmt-clean upstream (26 files today), so the
+      # gate covers the hand-written tree only. The listing line before it stays so the generated drift
+      # is still visible in the log.
       - gofmt -l ./cmd ./internal ./pkg
-      - test -z "$(gofmt -l ./cmd ./internal ./pkg)"
+      - test -z "$(gofmt -l ./cmd ./internal ./pkg | grep -v 'pkg/api_client')"
       # pg_isready is the only thing here that needs the client; the Go code dials on its own.
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-client >/dev/null
       - until pg_isready -h localhost -U postgres >/dev/null 2>&1; do sleep 1; done

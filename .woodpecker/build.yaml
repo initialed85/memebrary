@@ -17,6 +17,10 @@ steps:
     image: docker.io/library/docker:cli
     privileged: true
     depends_on: [compile-backend]
+    # the backend Dockerfile's COPY paths are relative to backend/, and the per-Dockerfile ignore file
+    # (docker/api/Dockerfile.dockerignore) is what keeps tmp/ in the context while dropping the rest, so
+    # the step runs from backend/ exactly like ./build.sh does. The frontend is a sibling context.
+    directory: backend
     environment:
       DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
     backend_options:
@@ -33,10 +37,10 @@ steps:
     commands:
       - docker info --format 'daemon={{.Name}} images_before={{.Images}}'
       - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
-      - docker build -f docker/api/Dockerfile --platform=linux/amd64 -t "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-backend:latest" backend
+      - docker build -f docker/api/Dockerfile --platform=linux/amd64 -t "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-backend:latest" .
       - docker push "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA"
       - docker push "docker.io/initialed85/memebrary-backend:latest"
-      - docker build --platform=linux/amd64 -t "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-frontend:latest" frontend
+      - docker build --platform=linux/amd64 -t "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-frontend:latest" ../frontend
       - docker push "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
       - docker push "docker.io/initialed85/memebrary-frontend:latest"
       - docker image inspect --format '{{.Repository}}:{{.RepoDigests}}' "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
