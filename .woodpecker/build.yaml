@@ -1,0 +1,66 @@
+# The publish pipeline: two images, one commit. The backend image's Dockerfile copies `./tmp/api` (its
+# builder stage compiles the API and installs the migrate CLI), so the binary is built first — the same
+# two-step rooter and strata use. The frontend image is self-contained (node build onto nginx).
+#
+# Deploying to home-prod is the last step, and it stamps both images in one commit:
+# wp-kustomize-deploy takes a JSON list of image names because both come from this sha.
+steps:
+  - name: compile-backend
+    image: docker.io/library/golang:1.26
+    directory: backend
+    commands:
+      - go version
+      - CGO_ENABLED=0 go build -o ./tmp/api ./cmd/api
+      - ls -l tmp/api
+
+  - name: build-and-push
+    image: docker.io/library/docker:cli
+    privileged: true
+    depends_on: [compile-backend]
+    environment:
+      DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: dockerhub
+            key: username
+            target:
+              env: DOCKERHUB_USER
+          - name: dockerhub
+            key: token
+            target:
+              env: DOCKERHUB_TOKEN
+    commands:
+      - docker info --format 'daemon={{.Name}} images_before={{.Images}}'
+      - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+      - docker build -f docker/api/Dockerfile --platform=linux/amd64 -t "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-backend:latest" backend
+      - docker push "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA"
+      - docker push "docker.io/initialed85/memebrary-backend:latest"
+      - docker build --platform=linux/amd64 -t "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-frontend:latest" frontend
+      - docker push "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
+      - docker push "docker.io/initialed85/memebrary-frontend:latest"
+      - docker image inspect --format '{{.Repository}}:{{.RepoDigests}}' "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
+
+  - name: deploy-home-ops
+    image: docker.io/initialed85/wp-kustomize-deploy:latest
+    depends_on: [build-and-push]
+    settings:
+      image:
+        - docker.io/initialed85/memebrary-backend
+        - docker.io/initialed85/memebrary-frontend
+      dir: clusters/prod/applications/memebrary-next
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: home-ops-deploy-key
+            key: id_ed25519
+            target:
+              env: PLUGIN_DEPLOY_KEY
+          - name: home-ops-deploy-key
+            key: known_hosts
+            target:
+              env: PLUGIN_KNOWN_HOSTS
+
+when:
+  - event: push
+    branch: master

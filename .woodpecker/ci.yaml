@@ -1,0 +1,64 @@
+# The gates: backend compiles and its tests pass against a real Postgres + Redis, frontend builds.
+#
+# The tests are the reason this file exists. `backend/test.sh` was written against the docker compose
+# stack in the repo and connects to `localhost` (POSTGRES_HOST defaults to it), and with the k8s backend
+# `services:` are extra containers in the step's own pod (agent/kubernetes.go:199), which share its
+# network namespace — so `localhost` is correct and the tests run unmodified. Postgres is the same
+# postgis/postgis:15-3.3 the prod app runs, not plain postgres, because the schema uses geo columns.
+#
+# Two things to know if this file is ever run on the docker backend instead: services are reached by
+# their *name* there (not localhost), and the step waits for port 5432 anyway, which is the right
+# behaviour in both cases because nothing gates service readiness.
+
+services:
+  - name: postgres
+    image: docker.io/postgis/postgis:15-3.3
+    environment:
+      POSTGRES_DB: memebrary
+      POSTGRES_PASSWORD: 'NoColgate!11'
+    ports:
+      - 5432
+  - name: redis
+    image: docker.io/library/redis:7.2.5
+    ports:
+      - 6379
+
+steps:
+  - name: backend-test
+    image: docker.io/library/golang:1.26
+    directory: backend
+    environment:
+      POSTGRES_DB: memebrary
+      POSTGRES_PASSWORD: 'NoColgate!11'
+      REDIS_URL: redis://localhost:6379
+      DJANGOLANG_API_ROOT: /api/
+    commands:
+      - go version
+      - gofmt -l ./cmd ./internal ./pkg
+      - test -z "$(gofmt -l ./cmd ./internal ./pkg)"
+      # pg_isready is the only thing here that needs the client; the Go code dials on its own.
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-client >/dev/null
+      - until pg_isready -h localhost -U postgres >/dev/null 2>&1; do sleep 1; done
+      # the schema comes from the repo's own migrations, not from `djangolang template`, so CI proves the
+      # migrations are complete: a model that needs a column nobody migrated fails here.
+      - go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+      - PATH="$PATH:/go/bin" ./migrate.sh up
+      - go vet ./...
+      - go test -count=1 ./...
+
+  - name: frontend-build
+    image: docker.io/library/node:22-alpine
+    directory: frontend
+    commands:
+      - node --version
+      - npm ci
+      - npm run openapi-typescript
+      # `check` is svelte-check: it compiles the app against the generated client, which is what catches
+      # API-shape drift that used to only show up at runtime.
+      - npm run check
+      - npm run build
+
+when:
+  - event: push
+    branch: master
+  - event: pull_request
