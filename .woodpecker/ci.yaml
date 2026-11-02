@@ -1,14 +1,19 @@
 # The gates: backend compiles and its tests pass against a real Postgres + Redis, frontend builds.
 #
 # The tests are the reason this file exists. `backend/test.sh` was written against the docker compose
-# stack in the repo and connects to `localhost` (POSTGRES_HOST defaults to it), and with the k8s backend
-# `services:` are extra containers in the step's own pod (agent/kubernetes.go:199), which share its
-# network namespace — so `localhost` is correct and the tests run unmodified. Postgres is the same
-# postgis/postgis:15-3.3 the prod app runs, not plain postgres, because the schema uses geo columns.
+# stack and connects to `localhost` (POSTGRES_HOST defaults to it), so the env has to override it.
 #
-# Two things to know if this file is ever run on the docker backend instead: services are reached by
-# their *name* there (not localhost), and the step waits for port 5432 anyway, which is the right
-# behaviour in both cases because nothing gates service readiness.
+# With the k8s backend a `services:` entry is a *separate pod* in the namespace, not a sidecar in the
+# step's pod, and you reach it by its name: the agent creates a per-pipeline headless service
+# (`wp-hsvc-<task>`) and sets the service pod's hostname to the step name (pod.go:196), so the step's
+# resolv.conf search list makes `postgres` resolve. Measured in a live step pod: `getent hosts
+# postgres` -> the service pod IP, and `localhost` -> the step pod itself, where nothing listens.
+#
+# The cost of getting this wrong is a hang, not an error: pipeline 5 sat in `until pg_isready -h
+# localhost` for 50 minutes, because a step waiting for its own pod is never disappointed.
+#
+# Postgres is the same postgis/postgis:15-3.3 the prod app runs, not plain postgres, because the
+# schema uses geo columns.
 
 services:
   - name: postgres
@@ -28,9 +33,11 @@ steps:
     image: docker.io/library/golang:1.26
     directory: backend
     environment:
+      # the service pod's name, not localhost - see the header comment
+      POSTGRES_HOST: postgres
       POSTGRES_DB: memebrary
       POSTGRES_PASSWORD: 'NoColgate!11'
-      REDIS_URL: redis://localhost:6379
+      REDIS_URL: redis://redis:6379
       DJANGOLANG_API_ROOT: /api/
     commands:
       - go version
@@ -41,7 +48,7 @@ steps:
       - test -z "$(gofmt -l ./cmd ./internal ./pkg | grep -v 'pkg/api_client')"
       # pg_isready is the only thing here that needs the client; the Go code dials on its own.
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-client >/dev/null
-      - until pg_isready -h localhost -U postgres >/dev/null 2>&1; do sleep 1; done
+      - until pg_isready -h postgres -U postgres >/dev/null 2>&1; do sleep 1; done
       # the schema comes from the repo's own migrations, not from `djangolang template`, so CI proves the
       # migrations are complete: a model that needs a column nobody migrated fails here.
       - go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
