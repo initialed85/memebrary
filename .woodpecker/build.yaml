@@ -43,7 +43,7 @@ steps:
       - docker build --platform=linux/amd64 -t "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA" -t "docker.io/initialed85/memebrary-frontend:latest" ../frontend
       - docker push "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
       - docker push "docker.io/initialed85/memebrary-frontend:latest"
-      - docker image inspect --format '{{.Repository}}:{{.RepoDigests}}' "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
+      - docker image inspect --format '{{.RepoTags}} {{.RepoDigests}}' "docker.io/initialed85/memebrary-backend:$CI_COMMIT_SHA" "docker.io/initialed85/memebrary-frontend:$CI_COMMIT_SHA"
 
   - name: deploy-home-ops
     image: docker.io/initialed85/wp-kustomize-deploy:latest
