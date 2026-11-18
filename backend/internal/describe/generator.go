@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,8 +28,49 @@ type Generator struct {
 	store             *store.Store
 	reprocessExisting bool
 	workers           int
+	maxTokens         int
+	reasoningTokens   int
 	logger            *slog.Logger
 	jobs              chan store.Meme
+}
+
+// maxTokenCeiling bounds how far an escalated completion budget may grow and
+// maxTokenEscalations bounds how many retries one job may cost. llama.cpp
+// clamps the request to whatever context is left, so a generous ceiling is safe.
+const (
+	maxTokenCeiling     = 8192
+	maxTokenEscalations = 2
+)
+
+// truncatedError reports that the model ran out of completion budget. A small
+// thinking model returns HTTP 200 with an empty message.content and puts every
+// token into hidden reasoning, which otherwise surfaces as the meaningless
+// "unexpected end of JSON input".
+type truncatedError struct {
+	budget     int
+	finish     string
+	completion int
+	prompt     int
+}
+
+func (e *truncatedError) Error() string {
+	return fmt.Sprintf("vision model exhausted its %d-token completion budget (finish_reason=%s, completion_tokens=%d, prompt_tokens=%d); raise AI_MAX_TOKENS or set AI_REASONING_TOKENS=0 to suppress hidden reasoning",
+		e.budget, e.finish, e.completion, e.prompt)
+}
+
+// Options configures one vision generator. It replaced a nine-positional-argument
+// constructor, which was no longer readable.
+type Options struct {
+	BaseURL           string
+	Model             string
+	APIKey            string
+	ReprocessExisting bool
+	Workers           int
+	MaxTokens         int
+	// ReasoningTokens is the llama.cpp per-request reasoning budget. 0 stops the
+	// model thinking before it answers; a negative value omits the field for a
+	// server that does not understand it.
+	ReasoningTokens int
 }
 
 type GeneratedContent struct {
@@ -37,18 +79,26 @@ type GeneratedContent struct {
 	TextTags    []string `json:"text_tags"`
 }
 
-func New(baseURL, model, apiKey string, dataStore *store.Store, reprocessExisting bool, workers int, logger *slog.Logger) *Generator {
+func New(options Options, dataStore *store.Store, logger *slog.Logger) *Generator {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	maxTokens := options.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 2048
+	}
 	return &Generator{
-		baseURL:           strings.TrimRight(baseURL, "/"),
-		model:             model,
-		apiKey:            apiKey,
-		client:            &http.Client{Timeout: 90 * time.Second},
+		baseURL: strings.TrimRight(options.BaseURL, "/"),
+		model:   options.Model,
+		apiKey:  options.APIKey,
+		// A thinking completion is slow enough on a shared GPU to need more
+		// headroom than the old 90s; a suppressed one answers in seconds.
+		client:            &http.Client{Timeout: 180 * time.Second},
 		store:             dataStore,
-		reprocessExisting: reprocessExisting,
-		workers:           max(1, workers),
+		reprocessExisting: options.ReprocessExisting,
+		workers:           max(1, options.Workers),
+		maxTokens:         maxTokens,
+		reasoningTokens:   options.ReasoningTokens,
 		logger:            logger,
 		jobs:              make(chan store.Meme, 64),
 	}
@@ -122,7 +172,7 @@ func (g *Generator) generate(ctx context.Context, meme store.Meme) {
 		existingDescription = ""
 		existingTags = nil
 	}
-	result, err := g.request(ctx, meme.MimeType, imageBytes, existingDescription, existingTags)
+	result, err := g.requestWithEscalation(ctx, meme, imageBytes, existingDescription, existingTags)
 	if err != nil {
 		g.logger.Error("vision request failed", "id", meme.ID, "error", err, "duration", time.Since(started))
 		g.markFailed(meme)
@@ -162,7 +212,29 @@ func (g *Generator) markFailed(meme store.Meme) {
 // osReadFile is a variable so the generator remains straightforward to test.
 var osReadFile = func(name string) ([]byte, error) { return os.ReadFile(name) }
 
-func (g *Generator) request(ctx context.Context, mimeType string, image []byte, existingDescription string, existingTags []string) (GeneratedContent, error) {
+// requestWithEscalation retries with a doubled completion budget when the model
+// spends everything on hidden reasoning. Without this a text-heavy meme fails on
+// a coin flip: the answer is short, but the thinking that precedes it varies per
+// image.
+func (g *Generator) requestWithEscalation(ctx context.Context, meme store.Meme, imageBytes []byte, existingDescription string, existingTags []string) (GeneratedContent, error) {
+	budget := g.maxTokens
+	for attempt := 0; ; attempt++ {
+		result, err := g.request(ctx, meme.MimeType, imageBytes, existingDescription, existingTags, budget)
+		if err == nil {
+			return result, nil
+		}
+		var truncated *truncatedError
+		if !errors.As(err, &truncated) || attempt >= maxTokenEscalations || budget >= maxTokenCeiling {
+			return GeneratedContent{}, err
+		}
+		budget = min(budget*2, maxTokenCeiling)
+		g.logger.Warn("vision budget exhausted, retrying with a larger completion budget",
+			"id", meme.ID, "attempt", attempt+1, "budget", budget, "finish_reason", truncated.finish,
+			"completion_tokens", truncated.completion)
+	}
+}
+
+func (g *Generator) request(ctx context.Context, mimeType string, image []byte, existingDescription string, existingTags []string, maxTokens int) (GeneratedContent, error) {
 	imageURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(image)
 	instruction := `Return only one valid JSON object, with exactly these fields: {"description":"one concise sentence","hashtags":["short-tag"],"text_tags":["visible-word"]}.
 Describe what is visibly happening in the image. Hashtags must be 3-6 short lowercase visual or meme-context tags, without # or explanations. text_tags must contain only complete, clearly readable words or short phrases visible in the image, kept as close to the exact spelling as possible, lowercase, without punctuation. Never abbreviate, truncate, or guess a partial word; omit anything uncertain. Use an empty array only when no text is visible.
@@ -182,8 +254,8 @@ If an existing description is supplied, copy it exactly into description. If exi
 				},
 			},
 		},
-		// Qwen-style models otherwise spend the whole short completion budget in
-		// hidden reasoning and leave message.content empty.
+		// llama.cpp honours this per request (it needs b9982 or newer; older builds
+		// silently ignore it, which is why maxTokens escalation still exists).
 		"chat_template_kwargs": map[string]any{"enable_thinking": false},
 		"response_format":      map[string]string{"type": "json_object"},
 		// Use low-temperature sampling with a fixed seed: this avoids the
@@ -192,7 +264,14 @@ If an existing description is supplied, copy it exactly into description. If exi
 		"top_k":       30,
 		"top_p":       0.95,
 		"seed":        42,
-		"max_tokens":  600,
+		"max_tokens":  maxTokens,
+	}
+	if g.reasoningTokens >= 0 {
+		// A meme description does not need chain-of-thought: measured on the eight
+		// memes that had been failing, suppressing reasoning cost 147 -> 135 capped
+		// text tags while cutting the median completion from 859 tokens / 22.2s to
+		// 164 tokens / 4.9s.
+		payload["reasoning_budget_tokens"] = g.reasoningTokens
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -223,7 +302,12 @@ If an existing description is supplied, copy it exactly into description. If exi
 			Message struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(responseBody, &completion); err != nil {
 		return GeneratedContent{}, err
@@ -231,7 +315,24 @@ If an existing description is supplied, copy it exactly into description. If exi
 	if len(completion.Choices) == 0 {
 		return GeneratedContent{}, fmt.Errorf("description endpoint returned no choices")
 	}
-	return parseContent(completion.Choices[0].Message.Content)
+	choice := completion.Choices[0]
+	content := cleanContent(choice.Message.Content)
+	if content == "" {
+		// An empty content with finish_reason "length" means the whole budget went
+		// into hidden reasoning; the answer never started. Anything else that comes
+		// back empty is the model's fault, not a budget to escalate.
+		if choice.FinishReason == "length" {
+			return GeneratedContent{}, &truncatedError{
+				budget:     maxTokens,
+				finish:     choice.FinishReason,
+				completion: completion.Usage.CompletionTokens,
+				prompt:     completion.Usage.PromptTokens,
+			}
+		}
+		return GeneratedContent{}, fmt.Errorf("vision model returned an empty completion (finish_reason=%s, completion_tokens=%d, prompt_tokens=%d)",
+			choice.FinishReason, completion.Usage.CompletionTokens, completion.Usage.PromptTokens)
+	}
+	return parseContent(choice.Message.Content)
 }
 
 var thinkBlock = regexp.MustCompile(`(?s)<think>.*?</think>`)

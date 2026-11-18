@@ -143,6 +143,26 @@ Open <http://localhost:5173>.
 
 Set `AI_BASE_URL=` to disable vision metadata. `OPENAI_BASE_URL`, `AI_MODEL`, `OPENAI_MODEL`, and the corresponding API key aliases are also accepted.
 
+### Known trap: thinking models and the vision token budget
+
+Vision metadata generation fails *per input*, not globally, when the completion
+budget is smaller than the reasoning a model spends before answering. A thinking
+model returns HTTP 200 with `finish_reason: "length"`, empty `message.content`, and
+every token in hidden reasoning; the old 600-token cap sat just under what
+Gemma-4-E4B needs (~550–1750 reasoning plus the answer), so simple memes succeeded
+and text-heavy memes failed with the misleading error
+`unexpected end of JSON input`. It is not a context-length problem — measured
+`prompt_tokens` for a 3 MB meme is ~815 against a 32768-token server context.
+
+`AI_REASONING_TOKENS=0` (the default) suppresses the thinking with llama.cpp's
+`reasoning_budget_tokens`, which is the only knob that works for Gemma —
+`chat_template_kwargs.enable_thinking`, `reasoning_effort`, `thinking_budget` and
+prompt-level "do not reason" instructions were all measured to have no effect.
+Suppressing reasoning also made the pass 4–5x faster. If descriptions start
+failing again, read `finish_reason` and the token counts in the `vision request
+failed` log line before suspecting image size, and probe the live endpoint with
+`go test ./internal/describe -run Live` (see `backend/README.md`).
+
 ## Runtime/deployment builds
 
 `backend/build-tag-and-push.sh` builds and pushes both images:

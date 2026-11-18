@@ -28,7 +28,15 @@ func addCustomHandlers(r chi.Router, db *pgxpool.Pool, _ *redis.Pool) error {
 	}
 	dataStore := store.New(db)
 	logger := slog.Default()
-	generator := describe.New(cfg.AIBaseURL, cfg.AIModel, cfg.AIAPIKey, dataStore, cfg.ReprocessExisting, cfg.AIWorkers, logger)
+	generator := describe.New(describe.Options{
+		BaseURL:           cfg.AIBaseURL,
+		Model:             cfg.AIModel,
+		APIKey:            cfg.AIAPIKey,
+		ReprocessExisting: cfg.ReprocessExisting,
+		Workers:           cfg.AIWorkers,
+		MaxTokens:         cfg.AIMaxTokens,
+		ReasoningTokens:   cfg.AIReasoningTokens,
+	}, dataStore, logger)
 	generator.Start(context.Background())
 	worker := detect.New(cfg.DetectionBaseURL, cfg.DetectionConf, dataStore, cfg.DetectionWorkers, logger)
 	worker.Start(context.Background())

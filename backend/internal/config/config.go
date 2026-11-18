@@ -7,13 +7,18 @@ import (
 )
 
 type Config struct {
-	Port              string
-	MediaDir          string
-	MaxUploadSize     int64
-	AIBaseURL         string
-	AIModel           string
-	AIAPIKey          string
-	AIWorkers         int
+	Port          string
+	MediaDir      string
+	MaxUploadSize int64
+	AIBaseURL     string
+	AIModel       string
+	AIAPIKey      string
+	AIWorkers     int
+	AIMaxTokens   int
+	// AIReasoningTokens is the llama.cpp per-request reasoning budget. 0
+	// suppresses hidden reasoning; a negative value omits the field for a server
+	// that does not understand it.
+	AIReasoningTokens int
 	ReprocessExisting bool
 	CORSOrigin        string
 	DetectionBaseURL  string
@@ -24,13 +29,18 @@ type Config struct {
 func Load() Config {
 	dataDir := env("DATA_DIR", "./data")
 	return Config{
-		Port:              env("PORT", "7070"),
-		MediaDir:          env("MEDIA_DIR", dataDir+"/media"),
-		MaxUploadSize:     envInt64("MAX_UPLOAD_BYTES", 20*1024*1024),
-		AIBaseURL:         strings.TrimRight(envFirst("AI_BASE_URL", "OPENAI_BASE_URL"), "/"),
-		AIModel:           envFirstDefault("AI_MODEL", "OPENAI_MODEL", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q6_K_XL"),
-		AIAPIKey:          envFirst("AI_API_KEY", "OPENAI_API_KEY"),
-		AIWorkers:         int(envInt64("AI_WORKERS", 1)),
+		Port:          env("PORT", "7070"),
+		MediaDir:      env("MEDIA_DIR", dataDir+"/media"),
+		MaxUploadSize: envInt64("MAX_UPLOAD_BYTES", 20*1024*1024),
+		AIBaseURL:     strings.TrimRight(envFirst("AI_BASE_URL", "OPENAI_BASE_URL"), "/"),
+		AIModel:       envFirstDefault("AI_MODEL", "OPENAI_MODEL", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q6_K_XL"),
+		AIAPIKey:      envFirst("AI_API_KEY", "OPENAI_API_KEY"),
+		AIWorkers:     int(envInt64("AI_WORKERS", 1)),
+		// A thinking model can spend 550-1750 hidden tokens before it starts the
+		// answer, so the cap has to cover the thinking whenever reasoning is not
+		// suppressed. With AI_REASONING_TOKENS=0 the answer alone needs <300.
+		AIMaxTokens:       int(envInt64("AI_MAX_TOKENS", 2048)),
+		AIReasoningTokens: int(envInt64("AI_REASONING_TOKENS", 0)),
 		ReprocessExisting: envBool("AI_REPROCESS_EXISTING"),
 		CORSOrigin:        env("CORS_ORIGIN", ""),
 		DetectionBaseURL:  strings.TrimRight(env("DETECTION_BASE_URL", ""), "/"),
