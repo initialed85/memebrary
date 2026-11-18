@@ -195,37 +195,32 @@ The script pushes mutable `:latest` tags only; it does not create per-build tags
 
 ## Kubernetes deployment
 
-One target: `~/Projects/Home/home-ops/applications/memebrary-next/` → context `home-prod-next`, namespace `memebrary-next`, host `memebrary.prod.initialed85.cc`. This **is** production; the original implementation and the old `memebrary-dev`/`memebrary-last` deployments have been deleted, so roll deliberately and never re-point the ingress host without authorization.
+One target: `home-ops/clusters/prod/applications/memebrary-next/` → context `home-prod-next`, namespace `memebrary-next`, host `memebrary.prod.initialed85.cc`. This **is** production; the original implementation and the old `memebrary-dev`/`memebrary-last` deployments have been deleted, so roll deliberately and never re-point the ingress host without authorization.
 
-The manifests are applied by hand (no Argo app). Apply in order when creating or changing the stack:
-
-```sh
-cd ~/Projects/Home/home-ops/applications/memebrary-next
-kubectl --context home-prod-next apply -f namespace.yaml
-kubectl --context home-prod-next apply -f configmap.yaml -f pvc.yaml -f postgres.yaml -f redis.yaml
-kubectl --context home-prod-next apply -f backend.yaml -f frontend.yaml -f ingress.yaml
-```
+The stack is Git-driven: an Argo CD `Application` named `memebrary-next` lives in the `home-prod` cluster (`argocd` namespace, `kubectl --context home-prod get application memebrary-next -n argocd`) and syncs that directory with selfHeal. Pushing `master` is therefore the deploy path, not `kubectl apply` — a hand-applied manifest gets reverted by Argo on the next sync, and `git revert <kustomize commit>` is the rollback.
 
 Topology: the backend is a single `Recreate` pod (container `backend`) because media lives on a ReadWriteOnce Longhorn PVC; metadata is in the in-namespace PostgreSQL StatefulSet with Redis for djangolang coordination; the backend image runs SQL migrations at startup. Frontend nginx (container `frontend`) serves the SPA and proxies `/api` — including `/api/custom/media` — to the in-namespace `memebrary-backend` Service.
 
 ### Rolling a new image
 
-Both workloads use `image: initialed85/memebrary-*:latest` with `imagePullPolicy: Always`, so after a push, restart only the changed workload:
+Pushing `memebrary` `master` is the roll. `.woodpecker/build.yaml` builds and pushes `:<CI_COMMIT_SHA>` plus `:latest`, then the `deploy-home-ops` step runs `kustomize edit set image` on `clusters/prod/applications/memebrary-next/kustomization.yaml` and pushes that one-line commit to home-ops (subject `memebrary-next: image tag <sha>`); Argo then syncs it. `deployment.yaml` carries a placeholder tag — the `images:` transformer's `newTag` (a full sha, never `latest`) is what reaches the pod. So a manifest change that is not accompanied by a stamped tag does not deploy anything.
+
+Watch it land:
 
 ```sh
-kubectl --context home-prod-next -n memebrary-next rollout restart deployment/memebrary-next-frontend
-kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
+kubectl --context home-prod get application memebrary-next -n argocd -o jsonpath='{.status.sync.status}/{.status.health.status} rev={.status.sync.revision}'
+kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-backend --timeout=300s
 ```
 
-Then verify the running image actually matches what was pushed — `rollout status` succeeding does not prove it:
+Then verify the running image actually matches what was published — `rollout status` succeeding does not prove it. Compare the published digest of **the sha tag the deployment names** against the pod's `imageID`:
 
 ```sh
-docker buildx imagetools inspect initialed85/memebrary-frontend:latest --format '{{.Manifest.Digest}}'
-kubectl --context home-prod-next -n memebrary-next get pods -o wide
+docker buildx imagetools inspect docker.io/initialed85/memebrary-frontend:<CI_COMMIT_SHA> --format '{{.Manifest.Digest}}'
+kubectl --context home-prod-next -n memebrary-next get deploy -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
 kubectl --context home-prod-next -n memebrary-next get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\t"}{range .status.containerStatuses[*]}{.imageID}{"\n"}{end}{end}'
 ```
 
-Public endpoints (the `/media/<id>` path is proxied to `/api/custom/media/<id>`; use a real meme ID, unknown ones 404):
+Public endpoints (the `/media/<id>` path is proxied to `/api/custom/media/<id>`; use a real meme ID, unknown ones 404). Note the compatibility API is mounted under `/api/custom`, so retrying metadata is `POST /api/custom/memes/<id>/describe` — `POST /api/memes/<id>/describe` 404s:
 
 ```sh
 curl -kfsS https://memebrary.prod.initialed85.cc/healthz
@@ -233,19 +228,13 @@ curl -kfsS https://memebrary.prod.initialed85.cc/ | grep -o 'assets/index-[^"]*\
 curl -kfsS "https://memebrary.prod.initialed85.cc/api/memes?limit=1" | head -c 200      # backend: schema/API round-trip
 ```
 
-Rolling the backend briefly interrupts the pod (migrations run at startup) and restarts media serving; only roll it when its code changed.
+Rolling the backend briefly interrupts the pod (migrations run at startup) and restarts media serving; only roll it when its code changed. A docs-only push still triggers the whole pipeline and redeploys production, so bundle documentation with a real change rather than pushing it alone.
 
 Do not modify router/network configuration as part of memebrary image rollouts.
 
-### Known trap: digest pins leaking into the deployment
+### Known trap: hand-patching the live spec
 
-`kubectl set image <deployment> <container>=<repo>@sha256:...` writes the digest into the pod template. From then on `rollout restart` re-pulls that same old image and still reports success, and `kubectl apply` will not undo it unless the manifest says `:latest`. Keep the manifests on `:latest` and never pin digests here. If a live spec shows a digest, restore it:
-
-```sh
-kubectl --context home-prod-next -n memebrary-next set image deployment/memebrary-next-frontend \
-  frontend=initialed85/memebrary-frontend:latest
-kubectl --context home-prod-next -n memebrary-next rollout status deployment/memebrary-next-frontend --timeout=300s
-```
+`kubectl --context home-prod-next -n memebrary-next set image <deployment> <container>=<repo>@sha256:...` writes a digest into the pod template. From then on `rollout restart` re-pulls that same old image and still reports success — and because Argo selfHeals from Git, the patch is also quietly undone on the next sync, so it both fails to do what it looks like it does and leaves the cluster disagreeing with the repo. Change images only by stamping the kustomize `newTag` (i.e. push the commit, or `git revert` the deploy commit to roll back), never by editing the live object.
 
 ## Migration to djangolang (context)
 
